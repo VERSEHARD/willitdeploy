@@ -75,7 +75,7 @@ function ruleLabel(m){
 function lastValue(m){
   if(m.kind==='price') return fmtPrice(m);
   if(m.kind==='stock'&&m.last_availability) return m.last_availability;
-  if(m.kind==='listing_feed') return (m.change_count||0)+' new';
+  if(m.kind==='listing_feed') return (m.listing_count||0)+' tracked';
   return m.last_excerpt?m.last_excerpt.slice(0,40):'—';
 }
 
@@ -162,7 +162,7 @@ async function renderInspector(){
     box.innerHTML=
       '<div class="pp-inspector-head"><div class="pp-inspector-titleline"><span class="pp-kind-icon"><i class="ti '+kindIcon(m.kind)+'"></i></span><div class="pp-inspector-title"><h2>'+esc(m.name)+'</h2><a href="'+esc(m.url)+'" target="_blank" rel="noopener">'+esc(m.url)+'</a></div><span class="pp-dot '+esc(m.health)+'"></span></div>'+
       '<div class="pp-inspector-actions"><button class="btn btn-sm btn-outline-secondary" data-inspect-run="'+m.id+'"><i class="ti ti-player-play me-1"></i>Check now</button><button class="btn btn-sm btn-outline-secondary" data-inspect-toggle="'+m.id+'">'+(m.enabled?'Pause':'Resume')+'</button><button class="btn btn-sm btn-outline-danger ms-auto" data-inspect-delete="'+m.id+'"><i class="ti ti-trash"></i></button></div></div>'+
-      '<div class="pp-inspector-summary"><div><span>Rule</span><strong>'+esc(ruleLabel(m))+'</strong></div><div><span>Schedule</span><strong>Every '+m.interval_min+'m</strong></div><div><span>Last check</span><strong>'+esc(fmtFullTime(m.last_checked_iso))+'</strong></div><div><span>Success</span><strong>'+(m.success_rate==null?'—':m.success_rate+'%')+'</strong></div></div>'+
+      '<div class="pp-inspector-summary"><div><span>Rule</span><strong>'+esc(ruleLabel(m))+'</strong></div><div><span>Schedule</span><strong>Every '+m.interval_min+'m</strong></div><div><span>Last check</span><strong>'+esc(fmtFullTime(m.last_checked_iso))+'</strong></div><div><span>'+(m.kind==='listing_feed'?'Listings':'Success')+'</span><strong>'+(m.kind==='listing_feed'?(m.listing_count||0)+' tracked':(m.success_rate==null?'—':m.success_rate+'%'))+'</strong></div></div>'+
       '<div class="pp-inspector-section"><h3>Current evidence</h3><div class="pp-rule-box">'+
         '<strong>'+esc(lastValue(m))+'</strong><div class="text-secondary mt-1">'+esc((m.last_excerpt||'No captured text yet.').slice(0,420))+'</div>'+
         (m.last_error?'<div class="text-danger mt-2">'+esc(m.last_error)+'</div>':'')+
