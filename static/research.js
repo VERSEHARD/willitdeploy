@@ -57,13 +57,16 @@
   function renderResearchState(s) {
     if (!q('#researchStatusBadge')) return;
     q('#researchBatchId').textContent = s.batch_id || 'research batch';
+
     const status = String(s.status || 'pending').toUpperCase();
     const statusCls = s.status === 'completed' ? 'bg-green-lt text-green' : (s.status === 'running' ? 'bg-blue-lt text-blue' : 'bg-secondary-lt');
     q('#researchStatusBadge').className = 'badge ' + statusCls;
     q('#researchStatusBadge').textContent = status;
+
     q('#researchScreened').textContent = String(s.probe_completed || 0) + '/' + String(s.targets_total || 0);
     q('#researchCandidates').textContent = s.candidates || 0;
     q('#researchConfirmed').textContent = s.confirmed || 0;
+    if (q('#researchRepairs')) q('#researchRepairs').textContent = s.repair_verified || 0;
     q('#researchMoney').textContent = '$' + Number(s.money_earned_usd || 0).toFixed(2);
     q('#researchStage').textContent = 'Stage: ' + String(s.stage || 'queued');
 
@@ -96,6 +99,23 @@
       '<td>' + escR(compactOutcome(r.matrix, '10.9.9')) + '</td>' +
       '<td>' + escR(compactOutcome(r.matrix, '11.19.0')) + '</td></tr>'
     ).join('') : '<tr><td colspan="5" class="text-secondary">No results yet.</td></tr>';
+
+    const repairs = s.repairs || [];
+    const repairEl = q('#repairResults');
+    if (repairEl) {
+      repairEl.innerHTML = repairs.length ? repairs.map(r => {
+        const verified = r.verified
+          ? '<span class="badge bg-green-lt text-green">VERIFIED</span>'
+          : '<span class="badge bg-red-lt text-red">' + escR(String(r.status || 'FAILED').toUpperCase()) + '</span>';
+        const changed = (r.changed_paths || []).length ? escR((r.changed_paths || []).join(', ')) : '—';
+        const after = r.after ? 'npm10 ' + escR(r.after.npm_old || '—') + ' · npm11 ' + escR(r.after.npm_new || '—') : '—';
+        return '<tr><td><strong>' + escR(r.repo || '') + '</strong></td>' +
+          '<td>' + verified + '</td>' +
+          '<td class="text-secondary">' + changed + '</td>' +
+          '<td>' + escR(String(r.patch_bytes || 0)) + ' B</td>' +
+          '<td>' + after + '</td></tr>';
+      }).join('') : '<tr><td colspan="5" class="text-secondary">Repair validation has not started.</td></tr>';
+    }
 
     const confirms = s.confirmations || [];
     q('#researchConfirmations').innerHTML = confirms.length ? confirms.map(r =>
