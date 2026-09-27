@@ -52,8 +52,10 @@ def iso(ts):
 
 @contextmanager
 def db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA journal_mode=WAL")
     try:
         yield conn
         conn.commit()
@@ -118,6 +120,10 @@ def migrate_schema():
             if name not in cols:
                 conn.execute(f"ALTER TABLE monitors ADD COLUMN {name} {ddl}")
 
+        lab_cols = {row["name"] for row in conn.execute("PRAGMA table_info(lab_runs)").fetchall()} if conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='lab_runs'"
+        ).fetchone() else set()
+
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,6 +156,15 @@ def migrate_schema():
         CREATE INDEX IF NOT EXISTS idx_lab_runs_created
             ON lab_runs(created_at DESC);
         """)
+
+        lab_additions = {
+            "stable": "INTEGER",
+            "second_latency_ms": "INTEGER"
+        }
+        for name, ddl in lab_additions.items():
+            if name not in lab_cols:
+                conn.execute(f"ALTER TABLE lab_runs ADD COLUMN {name} {ddl}")
+
 
 
 def serialize_monitor(row):
@@ -690,36 +705,64 @@ def run_reliability_lab():
             "expect": "Professional",
         },
     ]
+
     for target in targets:
-        started = time.perf_counter()
+        status = None
+        second_status = None
+        latency_ms = None
+        second_latency_ms = None
+        html = ""
+        stable = None
+        signal = None
+        error = None
+        ok = False
+
         try:
+            first_started = time.perf_counter()
             status, final_url, html = fetch_page(target["url"])
-            latency_ms = int((time.perf_counter() - started) * 1000)
-            text = extract_content(html, None)
-            ok = status == 200 and target["expect"].lower() in text.lower()
-            signal = target["expect"] if ok else None
-            error = None if ok else f"Expected signal not found: {target['expect']}"
+            latency_ms = int((time.perf_counter() - first_started) * 1000)
+            first_text = extract_content(html, None)
+            first_hash = hashlib.sha256(first_text.encode("utf-8")).hexdigest()
+
+            time.sleep(0.2)
+
+            second_started = time.perf_counter()
+            second_status, _, second_html = fetch_page(target["url"])
+            second_latency_ms = int((time.perf_counter() - second_started) * 1000)
+            second_text = extract_content(second_html, None)
+            second_hash = hashlib.sha256(second_text.encode("utf-8")).hexdigest()
+
+            stable = first_hash == second_hash
+            has_signal = (
+                target["expect"].lower() in first_text.lower()
+                and target["expect"].lower() in second_text.lower()
+            )
+            ok = status == 200 and second_status == 200 and has_signal
+            signal = target["expect"] if has_signal else None
+            if not has_signal:
+                error = f"Expected signal not found consistently: {target['expect']}"
         except Exception as exc:
-            status = None
-            latency_ms = int((time.perf_counter() - started) * 1000)
-            html = ""
-            ok = False
-            signal = None
             error = str(exc)
+            if latency_ms is None:
+                latency_ms = 0
 
         print("[PricePulse] lab", json.dumps({
             "target": target["target"],
             "ok": ok,
+            "stable": stable,
             "http_status": status,
+            "second_http_status": second_status,
             "latency_ms": latency_ms,
+            "second_latency_ms": second_latency_ms,
             "signal": signal,
             "error": error,
         }, sort_keys=True), flush=True)
 
         with db() as conn:
             conn.execute(
-                """INSERT INTO lab_runs(target,url,created_at,ok,http_status,latency_ms,content_bytes,signal,error)
-                   VALUES(?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO lab_runs(
+                    target,url,created_at,ok,http_status,latency_ms,content_bytes,signal,error,stable,second_latency_ms
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     target["target"],
                     target["url"],
@@ -730,6 +773,8 @@ def run_reliability_lab():
                     len(html.encode("utf-8")),
                     signal,
                     error,
+                    None if stable is None else (1 if stable else 0),
+                    second_latency_ms,
                 ),
             )
             conn.execute(
@@ -737,6 +782,7 @@ def run_reliability_lab():
                     SELECT id FROM lab_runs ORDER BY created_at DESC LIMIT 100
                 )"""
             )
+
     lab_last_run = now_ts()
     print("[PricePulse] reliability-lab complete", flush=True)
 
@@ -792,6 +838,15 @@ def startup_self_test():
     price = extract_price(content, r"£([0-9.]+)")
     assert price is not None and abs(price - 51.77) < 0.001
     assert "In stock" in content
+    structured_fixture = """
+    <html><head><script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"Product","name":"Demo","offers":{"@type":"Offer","price":"129.99","priceCurrency":"USD","availability":"https://schema.org/InStock"}}
+    </script></head><body><h1>Demo</h1></body></html>
+    """
+    structured = extract_structured_product(structured_fixture)
+    assert structured["price"] == 129.99
+    assert structured["currency"] == "USD"
+    assert structured["availability"] == "InStock"
     try:
         validate_public_url("http://127.0.0.1/internal")
         raise AssertionError("SSRF guard failed")
@@ -1058,12 +1113,18 @@ def reliability_lab():
         if d["target"] not in latest:
             d["created_at_iso"] = iso(d["created_at"])
             d["ok"] = bool(d["ok"])
+            d["stable"] = None if d.get("stable") is None else bool(d["stable"])
             latest[d["target"]] = d
     values = list(latest.values())
+    stability_values = [v for v in values if v.get("stable") is not None]
     return jsonify({
         "last_run_iso": iso(max((v["created_at"] for v in values), default=None)),
         "targets": values,
         "pass_rate": round(sum(1 for v in values if v["ok"]) / len(values) * 100, 1) if values else None,
+        "stability_rate": round(
+            sum(1 for v in stability_values if v["stable"]) / len(stability_values) * 100,
+            1
+        ) if stability_values else None,
     })
 
 
