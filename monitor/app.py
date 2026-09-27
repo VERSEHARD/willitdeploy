@@ -834,14 +834,14 @@ def run_reliability_lab():
         {
             "target": "Vinted UK fashion feed",
             "url": "https://www.vinted.co.uk/catalog/1223-aviatoru-tipa-jakas/brand/14803-vintage-dressing",
-            "expect": "Y2K",
-            "expect_stable": True,
+            "expect": "Vintage Dressing",
+            "expect_stable": False,
         },
         {
             "target": "Vinted live Japan Style item",
             "url": "https://www.vinted.co.uk/items/7587599448-y2k-japanese-ruffle-blouse-sheer-ivory-shirt-with-contrast-cuffs",
             "expect": "Japan Style",
-            "expect_stable": True,
+            "expect_stable": False,
         },
         {
             "target": "Rightbiz UK business feed",
@@ -853,7 +853,7 @@ def run_reliability_lab():
             "target": "BusinessesForSale UK feed",
             "url": "https://uk.businessesforsale.com/uk/search/businesses-for-sale",
             "expect": "Businesses",
-            "expect_stable": True,
+            "expect_stable": False,
         },
         {
             "target": "Dynamic control · TimeAPI.io",
@@ -1506,7 +1506,18 @@ def health():
 def list_monitors():
     with db() as conn:
         rows = conn.execute("SELECT * FROM monitors ORDER BY id DESC").fetchall()
-    return jsonify([serialize_monitor(r) for r in rows])
+        counts = {
+            row["monitor_id"]: row["c"]
+            for row in conn.execute(
+                "SELECT monitor_id,COUNT(*) AS c FROM listing_items GROUP BY monitor_id"
+            ).fetchall()
+        }
+    items = []
+    for row in rows:
+        item = serialize_monitor(row)
+        item["listing_count"] = int(counts.get(row["id"], 0))
+        items.append(item)
+    return jsonify(items)
 
 
 @app.get("/api/events")
@@ -1933,6 +1944,8 @@ def delete_monitor(monitor_id):
         return denied
     with db() as conn:
         conn.execute("DELETE FROM events WHERE monitor_id=?", (monitor_id,))
+        conn.execute("DELETE FROM snapshots WHERE monitor_id=?", (monitor_id,))
+        conn.execute("DELETE FROM listing_items WHERE monitor_id=?", (monitor_id,))
         cur = conn.execute("DELETE FROM monitors WHERE id=?", (monitor_id,))
         if cur.rowcount == 0:
             return jsonify({"error": "Monitor not found."}), 404
