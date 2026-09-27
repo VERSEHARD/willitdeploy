@@ -18,7 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
 
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.3.2"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -825,6 +825,50 @@ def require_admin():
 
 
 
+def audit_rendered_ui(response, label):
+    html = response.get_data(as_text=True)
+    soup = BeautifulSoup(html, "html.parser")
+
+    ids = [node.get("id") for node in soup.select("[id]")]
+    duplicates = sorted({value for value in ids if ids.count(value) > 1})
+    assert not duplicates, f"{label}: duplicate element ids: {duplicates}"
+
+    id_set = set(ids)
+    missing_targets = []
+    for node in soup.select("[data-bs-target]"):
+        target = (node.get("data-bs-target") or "").strip()
+        if target.startswith("#") and target[1:] not in id_set:
+            missing_targets.append(target)
+    assert not missing_targets, f"{label}: missing data-bs targets: {missing_targets}"
+
+    unlabeled_buttons = []
+    for button in soup.find_all("button"):
+        visible = normalize_text(button.get_text(" ", strip=True))
+        if not visible and not button.get("title") and not button.get("aria-label"):
+            unlabeled_buttons.append(str(button)[:120])
+    assert not unlabeled_buttons, f"{label}: unlabeled buttons found"
+
+    forbidden_copy = ("unlock the power", "supercharge", "seamlessly integrate")
+    lowered = html.lower()
+    assert not any(term in lowered for term in forbidden_copy), f"{label}: generic marketing copy found"
+
+    return {
+        "ids": len(ids),
+        "buttons": len(soup.find_all("button")),
+        "links": len(soup.find_all("a")),
+    }
+
+
+def audit_css_contract():
+    for filename in ("app.css", "landing.css"):
+        css_path = BASE_DIR / "static" / filename
+        css = css_path.read_text(encoding="utf-8")
+        assert "linear-gradient(" not in css, f"{filename}: decorative gradient violates design contract"
+        assert "radial-gradient(" not in css, f"{filename}: decorative gradient violates design contract"
+        assert "backdrop-filter" not in css, f"{filename}: glassmorphism violates design contract"
+    return True
+
+
 def startup_self_test():
     fixture = """
     <html><body><div class="product_main">
@@ -852,8 +896,15 @@ def startup_self_test():
     workspace_response = client.get("/app")
     assert workspace_response.status_code == 200
     assert b"Reliability lab" in workspace_response.data
+    landing_audit = audit_rendered_ui(landing_response, "landing")
+    workspace_audit = audit_rendered_ui(workspace_response, "workspace")
+    assert audit_css_contract() is True
     metrics_response = client.get("/api/product-metrics")
     assert metrics_response.status_code == 200
+    print("[PricePulse] ui-contract PASS", json.dumps({
+        "landing": landing_audit,
+        "workspace": workspace_audit,
+    }, sort_keys=True), flush=True)
 
     try:
         validate_public_url("http://127.0.0.1/internal")
