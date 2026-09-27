@@ -44,7 +44,15 @@
 
     <div class="page-body">
       <div class="container-xl">
-        <div class="row row-cards">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <div class="btn-group" role="tablist" aria-label="WillItDeploy sections">
+            <button type="button" class="btn btn-primary wid-tab-btn" data-wid-tab="scanner">Scanner</button>
+            <button type="button" class="btn btn-outline-secondary wid-tab-btn" data-wid-tab="research">Live research</button>
+          </div>
+          <div class="small text-secondary">Batch progress updates automatically.</div>
+        </div>
+
+        <div id="scannerTab" class="row row-cards wid-tab-pane">
           <div class="col-12 col-xl-8">
             <div class="card">
               <div class="card-header">
@@ -160,6 +168,91 @@
                 <button id="refreshHistory" class="btn btn-sm btn-ghost-secondary">Refresh</button>
               </div>
               <div id="history" class="list-group list-group-flush"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="researchTab" class="wid-tab-pane d-none">
+          <div class="row row-cards">
+            <div class="col-12">
+              <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <div>
+                    <h3 class="card-title mb-0">Autonomous research</h3>
+                    <div class="text-secondary small" id="researchBatchId">Loading batch…</div>
+                  </div>
+                  <span id="researchStatusBadge" class="badge bg-secondary-lt">LOADING</span>
+                </div>
+                <div class="card-body">
+                  <div class="row g-3 mb-4">
+                    <div class="col-6 col-lg-3">
+                      <div class="subheader">Screened</div>
+                      <div class="h2 mb-0" id="researchScreened">0</div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                      <div class="subheader">Candidates</div>
+                      <div class="h2 mb-0" id="researchCandidates">0</div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                      <div class="subheader">Confirmed</div>
+                      <div class="h2 mb-0" id="researchConfirmed">0</div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                      <div class="subheader">Money earned</div>
+                      <div class="h2 mb-0" id="researchMoney">$0</div>
+                    </div>
+                  </div>
+
+                  <div class="mb-2 d-flex justify-content-between gap-3">
+                    <span class="fw-semibold" id="researchStage">Queued</span>
+                    <span class="text-secondary small" id="researchProgressText">0%</span>
+                  </div>
+                  <div class="progress mb-3">
+                    <div id="researchProgressBar" class="progress-bar" style="width:0%" role="progressbar" aria-label="Research progress"></div>
+                  </div>
+                  <div class="alert alert-info mb-0" id="researchCurrent">Waiting for research worker…</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0">Monetization gate</h3>
+                    <div class="text-secondary small">We do not call this sellable until the evidence passes the gate.</div>
+                  </div>
+                </div>
+                <div class="card-body" id="researchGate">Loading…</div>
+              </div>
+            </div>
+
+            <div class="col-12">
+              <div class="card">
+                <div class="card-header">
+                  <h3 class="card-title">Screening results</h3>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-vcenter card-table">
+                    <thead><tr><th>Repository</th><th>Case</th><th>Result</th><th>npm 10</th><th>npm 11</th></tr></thead>
+                    <tbody id="researchResults"><tr><td colspan="5" class="text-secondary">No results yet.</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12">
+              <div class="card">
+                <div class="card-header">
+                  <h3 class="card-title">Cross-runtime confirmations</h3>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-vcenter card-table">
+                    <thead><tr><th>Repository</th><th>Confirmed</th><th>22</th><th>24</th><th>26</th></tr></thead>
+                    <tbody id="researchConfirmations"><tr><td colspan="5" class="text-secondary">Confirmation stage has not started.</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </div>
