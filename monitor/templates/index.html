@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PricePulse — Website & Price Monitoring</title>
+  <meta name="description" content="Monitor public product and listing pages for price, stock, keyword and content changes.">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/css/tabler.min.css">
+  <style>
+    body { min-height: 100vh; }
+    .brand-dot { width:10px;height:10px;border-radius:50%;background:#2fb344;display:inline-block;box-shadow:0 0 0 4px rgba(47,179,68,.12); }
+    .metric { font-size:2rem;font-weight:700;line-height:1; }
+    .url-cell { max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    code { font-size:.82em; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <header class="navbar navbar-expand-md border-bottom">
+    <div class="container-xl">
+      <div class="navbar-brand d-flex align-items-center gap-2">
+        <span class="brand-dot"></span><span>PricePulse</span>
+      </div>
+      <div class="navbar-nav flex-row order-md-last">
+        <span id="health" class="text-secondary small">Checking…</span>
+        <span class="badge bg-secondary-lt ms-2">v{{ version }}</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="page-wrapper">
+    <div class="page-header">
+      <div class="container-xl">
+        <div class="row align-items-end g-3">
+          <div class="col">
+            <div class="page-pretitle">Hosted monitoring engine</div>
+            <h1 class="page-title">Watch a public page. Get the signal, not the noise.</h1>
+            <p class="text-secondary mt-2 mb-0">
+              Track price thresholds, stock keywords, CSS-selected content and page changes on a schedule.
+            </p>
+          </div>
+          <div class="col-auto">
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newMonitor">New monitor</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page-body">
+      <div class="container-xl">
+        <div class="row row-cards mb-4">
+          <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Monitors</div><div id="metricMonitors" class="metric">0</div></div></div></div>
+          <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Active</div><div id="metricActive" class="metric">0</div></div></div></div>
+          <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Changes</div><div id="metricChanges" class="metric">0</div></div></div></div>
+          <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Errors</div><div id="metricErrors" class="metric">0</div></div></div></div>
+        </div>
+
+        <div class="row row-cards">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header"><h3 class="card-title">Monitors</h3></div>
+              <div class="table-responsive">
+                <table class="table table-vcenter card-table">
+                  <thead><tr><th>Name</th><th>URL</th><th>Rule</th><th>Last check</th><th>Status</th><th class="w-1"></th></tr></thead>
+                  <tbody id="monitorRows"><tr><td colspan="6" class="text-secondary">Loading…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header"><h3 class="card-title">Recent signals</h3></div>
+              <div id="eventRows" class="list-group list-group-flush">
+                <div class="list-group-item text-secondary">No events yet.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12">
+            <div class="alert alert-info">
+              <strong>Current product scope:</strong> public HTML pages only. JavaScript-only marketplaces and authenticated pages need a browser worker, which is the next adapter.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal modal-blur fade" id="newMonitor" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form id="monitorForm">
+        <div class="modal-header">
+          <h5 class="modal-title">Create monitor</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">Name</label><input id="name" class="form-control" placeholder="Sony A7 IV under $1,500" required></div>
+            <div class="col-md-6"><label class="form-label">Check every (minutes)</label><input id="interval" type="number" min="1" max="1440" value="{{ default_interval }}" class="form-control"></div>
+            <div class="col-12"><label class="form-label">Public page URL</label><input id="url" type="url" class="form-control" placeholder="https://example.com/product" required></div>
+            <div class="col-md-6"><label class="form-label">CSS selector <span class="text-secondary">(optional)</span></label><input id="selector" class="form-control" placeholder=".product-price"></div>
+            <div class="col-md-6"><label class="form-label">Must contain <span class="text-secondary">(optional)</span></label><input id="mustContain" class="form-control" placeholder="In stock"></div>
+            <div class="col-md-6"><label class="form-label">Price regex <span class="text-secondary">(capture price)</span></label><input id="priceRegex" class="form-control" placeholder="\$([0-9,.]+)"></div>
+            <div class="col-md-6"><label class="form-label">Alert when price ≤</label><input id="maxPrice" type="number" step="0.01" class="form-control" placeholder="1500"></div>
+            <div class="col-12"><label class="form-label">Webhook URL <span class="text-secondary">(optional)</span></label><input id="webhook" type="url" class="form-control" placeholder="https://your-app.example/webhook"></div>
+            {% if token_required %}
+            <div class="col-12"><label class="form-label">Admin token</label><input id="token" type="password" class="form-control" placeholder="MONITOR_TOKEN"></div>
+            {% endif %}
+          </div>
+          <div id="formError" class="alert alert-danger mt-3 d-none"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-link" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" type="submit">Create & start</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>window.PP_TOKEN_REQUIRED={{ 'true' if token_required else 'false' }};</script>
+<script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/js/tabler.min.js"></script>
+<script src="/static/app.js?v={{ version }}"></script>
+</body>
+</html>
