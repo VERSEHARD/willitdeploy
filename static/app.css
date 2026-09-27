@@ -29,3 +29,6 @@ pre.log {
   .page-header { padding-top: 1.25rem; }
   .page-title { line-height: 1.2; }
 }
+
+.log-modal { max-height:72vh; min-height:260px; overflow:auto; white-space:pre-wrap; word-break:break-word; border:0; border-radius:0; margin:0; }
+.modal-content { overflow:hidden; }
