@@ -32,3 +32,14 @@ pre.log {
 
 .log-modal { max-height:72vh; min-height:260px; overflow:auto; white-space:pre-wrap; word-break:break-word; border:0; border-radius:0; margin:0; }
 .modal-content { overflow:hidden; }
+
+.wid-dialog {
+  width: min(1100px, calc(100vw - 32px));
+  max-width: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.wid-dialog::backdrop { background: rgba(0,0,0,.72); }
+.wid-dialog-card { max-height: 84vh; overflow: hidden; }
+.log-modal { max-height: 70vh; min-height: 280px; overflow: auto; }
