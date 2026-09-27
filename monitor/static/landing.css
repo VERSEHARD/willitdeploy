@@ -192,3 +192,33 @@ a{color:inherit}
 }
 
 body :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+.pilot-main{padding:74px 0 90px}
+.pilot-grid{display:grid;grid-template-columns:minmax(0,.9fr) minmax(420px,.7fr);gap:80px;align-items:start}
+.pilot-copy{padding-top:20px}
+.pilot-copy h1{font-size:clamp(2.5rem,5vw,4rem);line-height:1.02;letter-spacing:-.055em;font-weight:600;margin:14px 0 22px}
+.pilot-copy>p{font-size:16px;line-height:1.65;color:#676b67;max-width:640px}
+.pilot-terms{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--border);margin:32px 0 28px;background:#fff}
+.pilot-terms>div{padding:15px;border-right:1px solid var(--border);display:flex;gap:9px;align-items:flex-start}
+.pilot-terms>div:last-child{border-right:0}
+.pilot-terms i{font-size:17px;color:var(--accent);margin-top:1px}
+.pilot-terms strong,.pilot-terms small{display:block}.pilot-terms strong{font-size:11px}.pilot-terms small{font-size:9px;color:#8b8f8a;margin-top:2px}
+.pilot-notes{border-top:1px solid var(--border);padding-top:20px;max-width:650px}
+.pilot-notes strong{display:block;font-size:11px;margin-top:15px}.pilot-notes strong:first-child{margin-top:0}
+.pilot-notes p{font-size:11px;color:#7b7f7b;line-height:1.55;margin:5px 0 0}
+.pilot-form-shell{background:#fff;border:1px solid var(--border);border-radius:8px;padding:26px;position:sticky;top:92px}
+.pilot-form h2,.pilot-success h2{font-size:22px;letter-spacing:-.035em;font-weight:600;margin:5px 0}
+.pilot-form>div:first-child>p,.pilot-success>p{font-size:11px;color:#858984;margin:0 0 22px;line-height:1.55}
+.pilot-field{margin-top:17px}
+.pilot-field label{display:block;font-size:10px;font-weight:600;margin-bottom:6px}
+.pilot-field label span{font-weight:400;color:#969a95}
+.pilot-field small{display:block;font-size:9px;color:#969a95;margin-top:5px;line-height:1.4}
+.pilot-field textarea{resize:vertical;min-height:100px}
+.pilot-agreement{display:flex;gap:9px;align-items:flex-start;margin:20px 0;font-size:10px;color:#696d69;line-height:1.5}
+.pilot-agreement input{margin-top:2px}
+.pilot-form-foot{text-align:center;color:#999c97;font-size:9px;margin:9px 0 0}
+.pilot-honeypot{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important;overflow:hidden!important}
+.pilot-success{text-align:left}.pilot-success-icon{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:#e7f5ed;color:var(--ok);font-size:19px;margin-bottom:18px}
+.pilot-success-note{padding:11px 12px;border:1px solid #d8e7dd;background:#f4faf6;color:#4f6b59;border-radius:6px;font-size:10px;margin:20px 0}
+@media(max-width:900px){.pilot-grid{grid-template-columns:1fr;gap:38px}.pilot-form-shell{position:static}.pilot-terms{grid-template-columns:1fr}.pilot-terms>div{border-right:0;border-bottom:1px solid var(--border)}.pilot-terms>div:last-child{border-bottom:0}}
+@media(max-width:640px){.pilot-main{padding:44px 0 70px}.pilot-copy h1{font-size:2.45rem}.pilot-form-shell{padding:20px}}
