@@ -37,7 +37,7 @@ a{color:inherit}
 .lp-hero-grid{display:grid;grid-template-columns:minmax(0,1.03fr) minmax(430px,.97fr);gap:72px;align-items:center}
 .lp-eyebrow,.lp-live{display:inline-flex;align-items:center;gap:8px;color:#666b68;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.07em}
 .lp-dot,.lp-mini-dot{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block}
-.lp-hero h1{font-size:62px;line-height:1.01;letter-spacing:-.06em;max-width:720px;margin:18px 0 22px;font-weight:600}
+.lp-hero h1{font-size:clamp(2.75rem,5.7vw,4.15rem);line-height:1.01;letter-spacing:-.06em;max-width:720px;margin:18px 0 22px;font-weight:600}
 .lp-lead{font-size:18px;line-height:1.62;color:#626763;max-width:700px;margin:0}
 .lp-hero-actions{display:flex;gap:9px;flex-wrap:wrap;margin:30px 0 17px}
 .lp-risk-reversal{display:flex;gap:9px;align-items:flex-start;color:#6a6f6b;font-size:12px;line-height:1.45}
@@ -61,7 +61,7 @@ a{color:inherit}
 .lp-proof{padding:60px 0;background:var(--surface);border-bottom:1px solid var(--border)}
 .lp-proof-head{display:flex;align-items:end;justify-content:space-between;gap:32px}
 .lp-kicker{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#888b87}
-.lp-proof-head h2,.lp-section-title h2{font-size:31px;line-height:1.16;letter-spacing:-.045em;margin:8px 0 0;font-weight:600;max-width:760px}
+.lp-proof-head h2,.lp-section-title h2{font-size:clamp(1.65rem,3vw,2rem);line-height:1.16;letter-spacing:-.045em;margin:8px 0 0;font-weight:600;max-width:760px}
 .lp-proof-grid{margin-top:28px;border:1px solid var(--border);display:grid;grid-template-columns:repeat(4,1fr);background:var(--surface)}
 .lp-proof-card{padding:20px 22px;border-right:1px solid var(--border)}
 .lp-proof-card:last-child{border-right:0}
@@ -190,3 +190,5 @@ a{color:inherit}
   .lp-target-row{grid-template-columns:minmax(0,1fr) 54px 68px;padding:10px 12px;gap:10px}
   .lp-target-row>span:nth-child(3){display:none}
 }
+
+body :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
