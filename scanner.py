@@ -685,6 +685,71 @@ def ensure_node(major: int, runtime_root: Path) -> Path:
     return target
 
 
+
+def validate_npm_versions(values: list[str] | None) -> list[str]:
+    """Normalize an npm toolchain matrix. 'bundled' uses the npm shipped with Node."""
+    values = values or ["bundled"]
+    out: list[str] = []
+    for raw in values:
+        value = str(raw).strip()
+        if not value:
+            continue
+        if value == "bundled":
+            if value not in out:
+                out.append(value)
+            continue
+        if not re.fullmatch(r"\d+\.\d+\.\d+", value):
+            raise ValueError(f"Invalid npm version: {value}")
+        if value not in out:
+            out.append(value)
+    if not out:
+        out = ["bundled"]
+    if len(out) > 3:
+        raise ValueError("Maximum 3 npm versions per scan")
+    return out
+
+
+def ensure_npm(version: str, npm_root: Path) -> Path:
+    """Download an exact npm CLI release once and reuse it across Node runtimes."""
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise ValueError(f"Invalid npm version: {version}")
+    target = npm_root / f"npm-{version}"
+    cli = target / "bin" / "npm-cli.js"
+    if cli.exists():
+        return target
+
+    npm_root.mkdir(parents=True, exist_ok=True)
+    archive = npm_root / f"npm-{version}.tgz"
+    temp_extract = Path(tempfile.mkdtemp(prefix=f"npm-{version}-", dir=npm_root))
+    url = f"https://registry.npmjs.org/npm/-/npm-{version}.tgz"
+    try:
+        archive.unlink(missing_ok=True)
+        urllib.request.urlretrieve(url, archive)
+        with tarfile.open(archive, "r:gz") as tar:
+            safe_extract(tar, temp_extract)
+        package_dir = temp_extract / "package"
+        if not (package_dir / "bin" / "npm-cli.js").exists():
+            raise RuntimeError(f"Downloaded npm {version} but npm-cli.js was not found")
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        shutil.move(str(package_dir), str(target))
+    finally:
+        archive.unlink(missing_ok=True)
+        shutil.rmtree(temp_extract, ignore_errors=True)
+
+    if not cli.exists():
+        shutil.rmtree(target, ignore_errors=True)
+        raise RuntimeError(f"npm {version} extraction did not produce a usable CLI")
+    return target
+
+
+def npm_cli_for(node_dir: Path, npm_spec: str, npm_root: Path) -> tuple[list[str], str, str]:
+    node_bin = str(node_dir / "bin" / "node")
+    if npm_spec == "bundled":
+        return [str(node_dir / "bin" / "npm")], "bundled", "bundled"
+    npm_dir = ensure_npm(npm_spec, npm_root)
+    return [node_bin, str(npm_dir / "bin" / "npm-cli.js")], npm_spec, "pinned"
+
 def safe_extract(tar: tarfile.TarFile, path: Path):
     base = path.resolve()
     for member in tar.getmembers():
@@ -754,64 +819,186 @@ def classify_failure(output: str) -> list[dict[str, str]]:
     return hits
 
 
-def full_build_matrix(source_repo: Path, selected_project: str, node_majors: list[int], work_root: Path, runtime_root: Path) -> list[dict[str, Any]]:
-    results = []
+def full_build_matrix(
+    source_repo: Path,
+    selected_project: str,
+    node_majors: list[int],
+    work_root: Path,
+    runtime_root: Path,
+    npm_versions: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Run a controlled Node x npm matrix so only one toolchain variable changes at a time."""
+    results: list[dict[str, Any]] = []
+    npm_specs = validate_npm_versions(npm_versions)
+    npm_root = runtime_root.parent / "npm-tools"
+
     for major in node_majors:
         node_dir = ensure_node(major, runtime_root)
         runtime_version = run([str(node_dir / "bin" / "node"), "--version"], timeout=20)["output"].strip()
-        npm_version = run([str(node_dir / "bin" / "npm"), "--version"], env=sanitized_env(node_dir, work_root), timeout=20)["output"].strip()
-        workspace = Path(tempfile.mkdtemp(prefix=f"wid-node{major}-", dir=work_root))
-        repo_copy = workspace / "repo"
-        shutil.copytree(source_repo, repo_copy, ignore=shutil.ignore_patterns(".git", "node_modules", ".next", "dist", "build", "coverage"))
-        project = repo_copy if selected_project == "." else repo_copy / selected_project
-        env = sanitized_env(node_dir, workspace)
-        chown_tree(workspace)
 
-        pkg = load_json(project / "package.json")
-        pm = detect_package_manager(project, pkg)
-        if pm["name"] != "npm":
-            results.append({
-                "node_major": major,
-                "node_version": runtime_version,
-                "npm_version": npm_version,
-                "status": "unsupported_package_manager",
-                "package_manager": pm,
-                "install": {"code": 98, "duration_seconds": 0, "output": f"v0.2 full builds currently support npm projects; detected {pm['name']}.", "timed_out": False, "cmd": []},
-                "build": None,
-                "failure_signatures": [],
-            })
-            shutil.rmtree(workspace, ignore_errors=True)
-            continue
+        for npm_spec in npm_specs:
+            safe_spec = npm_spec.replace(".", "-")
+            workspace = Path(tempfile.mkdtemp(prefix=f"wid-node{major}-npm{safe_spec}-", dir=work_root))
+            repo_copy = workspace / "repo"
+            try:
+                shutil.copytree(source_repo, repo_copy, ignore=shutil.ignore_patterns(".git", "node_modules", ".next", "dist", "build", "coverage"))
+                project = repo_copy if selected_project == "." else repo_copy / selected_project
+                env = sanitized_env(node_dir, workspace)
+                chown_tree(workspace)
 
-        lock = (project / "package-lock.json").exists() or (project / "npm-shrinkwrap.json").exists()
-        install_cmd = [str(node_dir / "bin" / "npm"), "ci", "--include=dev", "--no-audit", "--no-fund"] if lock else [str(node_dir / "bin" / "npm"), "install", "--include=dev", "--no-audit", "--no-fund"]
-        install = run(install_cmd, cwd=project, env=env, timeout=INSTALL_TIMEOUT, limits=True, drop_privileges=True)
-        build = None
-        has_build = "build" in (pkg.get("scripts") or {})
-        if install["code"] == 0 and has_build:
-            build = run([str(node_dir / "bin" / "npm"), "run", "build"], cwd=project, env=env, timeout=BUILD_TIMEOUT, limits=True, drop_privileges=True)
+                pkg = load_json(project / "package.json")
+                pm = detect_package_manager(project, pkg)
+                npm_cli, requested_npm, npm_source = npm_cli_for(node_dir, npm_spec, npm_root)
+                npm_probe = run(npm_cli + ["--version"], cwd=project, env=env, timeout=30)
+                npm_version = npm_probe["output"].strip() if npm_probe["code"] == 0 else f"unavailable ({npm_spec})"
 
-        status = "pass"
-        fail_output = ""
-        if install["code"] != 0:
-            status = "fail_install"
-            fail_output = install["output"]
-        elif build and build["code"] != 0:
-            status = "fail_build"
-            fail_output = build["output"]
+                if pm["name"] != "npm":
+                    results.append({
+                        "node_major": major,
+                        "node_version": runtime_version,
+                        "npm_requested": requested_npm,
+                        "npm_source": npm_source,
+                        "npm_version": npm_version,
+                        "status": "unsupported_package_manager",
+                        "package_manager": pm,
+                        "install": {"code": 98, "duration_seconds": 0, "output": f"Full builds currently support npm projects; detected {pm['name']}.", "timed_out": False, "cmd": []},
+                        "build": None,
+                        "failure_signatures": [],
+                    })
+                    continue
 
-        results.append({
-            "node_major": major,
-            "node_version": runtime_version,
-            "npm_version": npm_version,
-            "status": status,
-            "package_manager": pm,
-            "install": install,
-            "build": build,
-            "failure_signatures": classify_failure(fail_output),
-        })
-        shutil.rmtree(workspace, ignore_errors=True)
+                if npm_probe["code"] != 0:
+                    results.append({
+                        "node_major": major,
+                        "node_version": runtime_version,
+                        "npm_requested": requested_npm,
+                        "npm_source": npm_source,
+                        "npm_version": npm_version,
+                        "status": "fail_toolchain",
+                        "package_manager": pm,
+                        "install": npm_probe,
+                        "build": None,
+                        "failure_signatures": classify_failure(npm_probe["output"]),
+                    })
+                    continue
+
+                lock = (project / "package-lock.json").exists() or (project / "npm-shrinkwrap.json").exists()
+                common_args = ["--include=dev", "--no-audit", "--no-fund"]
+                install_cmd = npm_cli + (["ci"] if lock else ["install"]) + common_args
+                install = run(install_cmd, cwd=project, env=env, timeout=INSTALL_TIMEOUT, limits=True, drop_privileges=True)
+
+                build = None
+                has_build = "build" in (pkg.get("scripts") or {})
+                if install["code"] == 0 and has_build:
+                    build = run(npm_cli + ["run", "build"], cwd=project, env=env, timeout=BUILD_TIMEOUT, limits=True, drop_privileges=True)
+
+                status = "pass"
+                fail_output = ""
+                if install["code"] != 0:
+                    status = "fail_install"
+                    fail_output = install["output"]
+                elif build and build["code"] != 0:
+                    status = "fail_build"
+                    fail_output = build["output"]
+
+                results.append({
+                    "node_major": major,
+                    "node_version": runtime_version,
+                    "npm_requested": requested_npm,
+                    "npm_source": npm_source,
+                    "npm_version": npm_version,
+                    "status": status,
+                    "package_manager": pm,
+                    "install": install,
+                    "build": build,
+                    "failure_signatures": classify_failure(fail_output),
+                })
+            finally:
+                shutil.rmtree(workspace, ignore_errors=True)
     return results
+
+
+def diagnose_matrix(matrix: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    if not matrix:
+        return None
+    considered = [r for r in matrix if r.get("status") != "unsupported_package_manager"]
+    if not considered:
+        return {"kind": "unsupported", "confidence": "low", "headline": "No supported npm toolchain was tested.", "evidence": []}
+
+    def outcome(r):
+        if r.get("status") == "pass":
+            return "pass"
+        sig_codes = {x.get("code") for x in r.get("failure_signatures", [])}
+        if "network" in sig_codes:
+            return "network"
+        return "fail"
+
+    stable = [r for r in considered if outcome(r) != "network"]
+    if not stable:
+        return {"kind": "network", "confidence": "low", "headline": "Only network failures were observed; compatibility is inconclusive.", "evidence": []}
+
+    nodes = sorted({int(r["node_major"]) for r in stable})
+    npms: list[str] = []
+    for r in stable:
+        n = str(r.get("npm_requested") or r.get("npm_version") or "bundled")
+        if n not in npms:
+            npms.append(n)
+
+    lookup = {(int(r["node_major"]), str(r.get("npm_requested") or r.get("npm_version") or "bundled")): outcome(r) for r in stable}
+    pass_count = sum(1 for r in stable if outcome(r) == "pass")
+    fail_count = sum(1 for r in stable if outcome(r) == "fail")
+
+    if fail_count == 0:
+        return {"kind": "clean", "confidence": "high", "headline": "No compatibility break reproduced in the tested Node x npm matrix.", "evidence": [f"{pass_count}/{len(stable)} non-network toolchains passed."]}
+    if pass_count == 0:
+        return {"kind": "baseline", "confidence": "medium", "headline": "The repository fails across every tested toolchain; this is not yet a version-specific break.", "evidence": [f"{fail_count}/{len(stable)} non-network toolchains failed."]}
+
+    if len(npms) >= 2:
+        directions: dict[tuple[str, str], list[int]] = {}
+        for a in npms:
+            for b in npms:
+                if a == b:
+                    continue
+                matching = [node for node in nodes if lookup.get((node, a)) == "pass" and lookup.get((node, b)) == "fail"]
+                if matching:
+                    directions[(a, b)] = matching
+        if directions:
+            (a, b), matching = max(directions.items(), key=lambda kv: len(kv[1]))
+            if len(matching) >= 2:
+                return {
+                    "kind": "npm",
+                    "confidence": "high",
+                    "headline": f"npm compatibility split isolated: npm {a} passes while npm {b} fails on Node {', '.join(map(str, matching))}.",
+                    "evidence": [f"Same Node runtime, different npm result on {len(matching)} Node versions."],
+                }
+
+    if len(nodes) >= 2:
+        directions2: dict[tuple[int, int], list[str]] = {}
+        for a in nodes:
+            for b in nodes:
+                if a == b:
+                    continue
+                matching = [npm for npm in npms if lookup.get((a, npm)) == "pass" and lookup.get((b, npm)) == "fail"]
+                if matching:
+                    directions2[(a, b)] = matching
+        if directions2:
+            (a, b), matching = max(directions2.items(), key=lambda kv: len(kv[1]))
+            if len(matching) >= 2:
+                return {
+                    "kind": "node",
+                    "confidence": "high",
+                    "headline": f"Node runtime split isolated: Node {a} passes while Node {b} fails under npm {', '.join(matching)}.",
+                    "evidence": [f"Same npm version, different Node result across {len(matching)} npm toolchains."],
+                }
+
+    failing = [f"Node {r['node_major']} + npm {r.get('npm_requested') or r.get('npm_version')}" for r in stable if outcome(r) == "fail"]
+    passing = [f"Node {r['node_major']} + npm {r.get('npm_requested') or r.get('npm_version')}" for r in stable if outcome(r) == "pass"]
+    return {
+        "kind": "interaction",
+        "confidence": "medium",
+        "headline": "A toolchain interaction was reproduced, but it is not explained by Node or npm alone.",
+        "evidence": ["Pass: " + "; ".join(passing[:4]), "Fail: " + "; ".join(failing[:4])],
+    }
 
 
 def summarize(static: dict[str, Any], matrix: list[dict[str, Any]] | None) -> str:
@@ -819,20 +1006,11 @@ def summarize(static: dict[str, Any], matrix: list[dict[str, Any]] | None) -> st
         return "No Node project discovered; repository recorded as not applicable instead of a failed experiment."
     if not matrix:
         return f"Static risk {static['risk_score']}/100; {len([x for x in static['native_or_risky_dependencies'] if not x.get('informational')])} runtime-sensitive package(s) detected."
-    considered = [r for r in matrix if r["status"] != "unsupported_package_manager"]
-    passed = [r["node_major"] for r in considered if r["status"] == "pass"]
-    failed = [r["node_major"] for r in considered if r["status"] != "pass"]
-    unsupported = [r["node_major"] for r in matrix if r["status"] == "unsupported_package_manager"]
-    if unsupported and not considered:
-        return "Build matrix skipped: package manager is not supported by v0.2 full-build execution yet."
-    if failed and passed:
-        return f"Compatibility split detected: passes Node {', '.join(map(str, passed))}; fails Node {', '.join(map(str, failed))}."
-    if failed:
-        return f"Build failed on all tested runtimes: Node {', '.join(map(str, failed))}."
-    return f"Build passed on all tested runtimes: Node {', '.join(map(str, passed))}."
+    diagnosis = diagnose_matrix(matrix)
+    return diagnosis["headline"] if diagnosis else "Build matrix completed."
 
 
-def scan_repo(repo_url: str, branch: str | None, mode: str, node_majors: list[int], work_root: Path, runtime_root: Path, project_path: str | None = None) -> dict[str, Any]:
+def scan_repo(repo_url: str, branch: str | None, mode: str, node_majors: list[int], work_root: Path, runtime_root: Path, project_path: str | None = None, npm_versions: list[str] | None = None) -> dict[str, Any]:
     slug = repo_slug(repo_url)
     session = Path(tempfile.mkdtemp(prefix="wid-clone-", dir=work_root))
     clone_dir = session / "repo"
@@ -845,7 +1023,7 @@ def scan_repo(repo_url: str, branch: str | None, mode: str, node_majors: list[in
             if project is None or not selected:
                 matrix = []
             else:
-                matrix = full_build_matrix(clone_dir, selected, node_majors, work_root, runtime_root)
+                matrix = full_build_matrix(clone_dir, selected, node_majors, work_root, runtime_root, npm_versions=npm_versions)
         return {
             "repo": slug,
             "repo_url": repo_url,
@@ -855,6 +1033,7 @@ def scan_repo(repo_url: str, branch: str | None, mode: str, node_majors: list[in
             "repo_size_mb": size_mb,
             "static": static,
             "matrix": matrix,
+            "diagnosis": diagnose_matrix(matrix),
             "summary": summarize(static, matrix),
             "generated_at": int(time.time()),
         }
@@ -865,7 +1044,7 @@ def scan_repo(repo_url: str, branch: str | None, mode: str, node_majors: list[in
 def scan_fixture(fixture_dir: Path, node_majors: list[int], work_root: Path, runtime_root: Path) -> dict[str, Any]:
     project, projects, selected = choose_project(fixture_dir)
     static = static_analysis(fixture_dir, project, projects, selected)
-    matrix = full_build_matrix(fixture_dir, selected or ".", node_majors, work_root, runtime_root)
+    matrix = full_build_matrix(fixture_dir, selected or ".", node_majors, work_root, runtime_root, npm_versions=["bundled"])
     return {
         "repo": "bundled/hello-node",
         "repo_url": "local fixture",
