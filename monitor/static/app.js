@@ -45,7 +45,7 @@ function ruleLabel(m){
   return m.selector?'Selected content':'Any content change';
 }
 function kindIcon(kind){return {price:'ti-currency-dollar',stock:'ti-package',keyword:'ti-text-scan-2',content:'ti-file-diff'}[kind]||'ti-radar'}
-function eventIcon(type){return {price_threshold:'ti-target-arrow',price_changed:'ti-arrows-exchange',keyword_match:'ti-bell-check',keyword_lost:'ti-bell-off',content_changed:'ti-file-diff',baseline:'ti-camera',error:'ti-alert-triangle'}[type]||'ti-bolt'}
+function eventIcon(type){return {price_threshold:'ti-target-arrow',price_changed:'ti-arrows-exchange',stock_available:'ti-package-export',stock_unavailable:'ti-package-off',keyword_match:'ti-bell-check',keyword_lost:'ti-bell-off',content_changed:'ti-file-diff',baseline:'ti-camera',error:'ti-alert-triangle'}[type]||'ti-bolt'}
 function statusHtml(m){return '<span class="pp-status '+esc(m.health)+'">'+esc(m.health)+'</span>'}
 
 function setView(name){
@@ -78,7 +78,7 @@ function renderMetrics(){
 }
 
 function monitorRow(m,compact=false){
-  const lastValue=m.kind==='price'?fmtPrice(m):(m.last_excerpt?esc(m.last_excerpt.slice(0,46)):'—');
+  const lastValue=m.kind==='price'?fmtPrice(m):(m.kind==='stock'&&m.last_availability?esc(m.last_availability):(m.last_excerpt?esc(m.last_excerpt.slice(0,46)):'—'));
   if(compact){
     return '<tr data-open-monitor="'+m.id+'"><td><div class="pp-monitor-name"><span class="pp-site-icon"><i class="ti '+kindIcon(m.kind)+'"></i></span><div><strong>'+esc(m.name)+'</strong><small>'+esc(m.url)+'</small></div></div></td><td><span class="pp-muted">'+esc(ruleLabel(m))+'</span></td><td>'+esc(fmtTime(m.last_checked_iso))+'</td><td>'+statusHtml(m)+'</td></tr>';
   }
@@ -136,12 +136,13 @@ function renderBrief(){
 function renderLab(){
   const lab=state.lab||{};
   $('#labPassRate').textContent=lab.pass_rate==null?'—':lab.pass_rate+'%';
+  $('#labStability').textContent=lab.stability_rate==null?'—':lab.stability_rate+'%';
   $('#labTargets').textContent=(lab.targets||[]).length;
   $('#labLastRun').textContent=fmtTime(lab.last_run_iso);
   $('#proofPassRate').textContent=lab.pass_rate==null?'—':lab.pass_rate+'%';
   $('#proofRunTime').textContent=lab.last_run_iso?'last run '+fmtTime(lab.last_run_iso):'waiting for first run';
   const targets=lab.targets||[];
-  $('#labCards').innerHTML=targets.length?targets.map(t=>'<div class="col-12 col-md-6 col-xl-3"><div class="pp-lab-card"><div class="pp-lab-card-head"><div><h3>'+esc(t.target)+'</h3><p>'+esc(t.url)+'</p></div><span class="badge '+(t.ok?'bg-green-lt text-green':'bg-red-lt text-red')+'">'+(t.ok?'PASS':'FAIL')+'</span></div><div class="pp-lab-meta"><div><span>HTTP</span><strong>'+esc(t.http_status||'—')+'</strong></div><div><span>Latency</span><strong>'+esc(fmtLatency(t.latency_ms))+'</strong></div><div><span>Signal</span><strong>'+esc(t.signal||'—')+'</strong></div></div>'+(t.error?'<div class="small text-danger mt-3">'+esc(t.error)+'</div>':'')+'</div></div>').join(''):'<div class="col-12"><div class="pp-empty">Reliability run is starting…</div></div>';
+  $('#labCards').innerHTML=targets.length?targets.map(t=>'<div class="col-12 col-md-6 col-xl-3"><div class="pp-lab-card"><div class="pp-lab-card-head"><div><h3>'+esc(t.target)+'</h3><p>'+esc(t.url)+'</p></div><span class="badge '+(t.ok?'bg-green-lt text-green':'bg-red-lt text-red')+'">'+(t.ok?'PASS':'FAIL')+'</span></div><div class="pp-lab-meta"><div><span>HTTP</span><strong>'+esc(t.http_status||'—')+'</strong></div><div><span>Latency</span><strong>'+esc(fmtLatency(t.latency_ms))+'</strong></div><div><span>Stable</span><strong>'+(t.stable==null?'—':(t.stable?'YES':'NO'))+'</strong></div></div>'+(t.error?'<div class="small text-danger mt-3">'+esc(t.error)+'</div>':'')+'</div></div>').join(''):'<div class="col-12"><div class="pp-empty">Reliability run is starting…</div></div>';
 
   const real=state.monitors.find(m=>m.name==='Books demo under 60');
   $('#proofText').textContent=real&&real.last_checked_iso?'Live sample page fetched '+fmtTime(real.last_checked_iso)+' · detected '+fmtPrice(real)+' · '+(real.last_error?'error: '+real.last_error:'healthy check'):'Waiting for the external demo monitor.';
@@ -220,7 +221,7 @@ $('#probeBtn').addEventListener('click',async()=>{
     if(!$('#name').value && d.title) $('#name').value=d.title.slice(0,80);
     if(d.currency && !$('#currency').value) $('#currency').value=d.currency;
     $('#probeResult').classList.remove('d-none');
-    $('#probeResult').innerHTML='<div class="pp-probe-grid"><div><span>Status</span><strong>'+d.http_status+'</strong></div><div><span>Monitorability</span><strong>'+esc(d.monitorability)+'</strong></div><div><span>Detected price</span><strong>'+esc(d.price==null?'—':((d.currency||'')+' '+d.price))+'</strong></div><div><span>Latency</span><strong>'+esc(fmtLatency(d.latency_ms))+'</strong></div></div><div class="pp-probe-preview">'+esc(d.preview||'')+'</div>';
+    $('#probeResult').innerHTML='<div class="pp-probe-grid"><div><span>Status</span><strong>'+d.http_status+'</strong></div><div><span>Monitorability</span><strong>'+esc(d.monitorability)+'</strong></div><div><span>Detected price</span><strong>'+esc(d.price==null?'—':((d.currency||'')+' '+d.price))+'</strong></div><div><span>Availability</span><strong>'+esc(d.availability||'—')+'</strong></div></div><div class="pp-probe-preview">'+esc(d.preview||'')+'</div>';
   }catch(err){
     $('#probeResult').classList.remove('d-none');$('#probeResult').innerHTML='<div class="text-danger small">'+esc(err.message)+'</div>';
   }finally{btn.disabled=false;btn.textContent='Test page'}
