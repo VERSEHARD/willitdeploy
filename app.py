@@ -12,9 +12,9 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-from scanner import scan_repo, scan_fixture, regression_checks
+from scanner import scan_repo, scan_fixture, regression_checks, quick_npm_probe
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -50,6 +50,199 @@ RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__)
 executor = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("SCAN_WORKERS", "1"))))
 write_lock = threading.Lock()
+
+
+RESEARCH_BATCH_ID = "npm11-screen-001"
+RESEARCH_STATE_PATH = DATA_DIR / "research_state.json"
+research_state_lock = threading.Lock()
+research_thread_started = False
+
+RESEARCH_TARGETS = [
+    {"repo": "https://github.com/Crypto-Mikael/tailwind-material", "branch": "main", "project_path": ".", "label": "positive control"},
+    {"repo": "https://github.com/Ontotext-AD/graphdb.js", "branch": None, "project_path": None, "label": "reported npm ci mismatch"},
+    {"repo": "https://github.com/advplyr/audiobookshelf", "branch": None, "project_path": None, "label": "reported npm 11 failure"},
+    {"repo": "https://github.com/nextcloud/maps", "branch": None, "project_path": None, "label": "reported npm >10 failure"},
+    {"repo": "https://github.com/red-hat-data-services/org-pulse-core", "branch": None, "project_path": None, "label": "toolchain drift case"},
+    {"repo": "https://github.com/sparq-org/sparq", "branch": None, "project_path": None, "label": "npm 10/11 lockfile drift case"},
+    {"repo": "https://github.com/able-wong/docx-markdown-utils", "branch": None, "project_path": None, "label": "optional native dependency case"},
+    {"repo": "https://github.com/cheeriojs/cheerio", "branch": "main", "project_path": ".", "label": "negative control"},
+    {"repo": "https://github.com/uuidjs/uuid", "branch": "main", "project_path": ".", "label": "modern npm control"},
+]
+
+
+def research_default_state():
+    return {
+        "batch_id": RESEARCH_BATCH_ID,
+        "status": "pending",
+        "stage": "queued",
+        "started_at": None,
+        "updated_at": now_ts(),
+        "finished_at": None,
+        "current": None,
+        "targets_total": len(RESEARCH_TARGETS),
+        "probe_completed": 0,
+        "confirm_completed": 0,
+        "candidates": 0,
+        "confirmed": 0,
+        "money_earned_usd": 0,
+        "monetization_gate": "Need reproducible independent compatibility failures before selling anything.",
+        "results": [],
+        "confirmations": [],
+        "notes": ["Quick probes use npm ci --dry-run --ignore-scripts; target lifecycle scripts are not executed."],
+    }
+
+
+def read_research_state():
+    with research_state_lock:
+        if not RESEARCH_STATE_PATH.exists():
+            return research_default_state()
+        try:
+            data = json.loads(RESEARCH_STATE_PATH.read_text(encoding="utf-8"))
+            if data.get("batch_id") != RESEARCH_BATCH_ID:
+                return research_default_state()
+            return data
+        except Exception:
+            return research_default_state()
+
+
+def write_research_state(state):
+    state["updated_at"] = now_ts()
+    tmp = RESEARCH_STATE_PATH.with_suffix(".tmp")
+    with research_state_lock:
+        tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        tmp.replace(RESEARCH_STATE_PATH)
+
+
+def research_worker():
+    state = read_research_state()
+    if state.get("status") == "completed":
+        return
+
+    state = research_default_state()
+    state["status"] = "running"
+    state["stage"] = "screening"
+    state["started_at"] = now_ts()
+    write_research_state(state)
+
+    candidates = []
+    for idx, target in enumerate(RESEARCH_TARGETS, start=1):
+        state["current"] = {
+            "phase": "screening",
+            "index": idx,
+            "total": len(RESEARCH_TARGETS),
+            "repo": target["repo"].replace("https://github.com/", ""),
+            "label": target["label"],
+        }
+        write_research_state(state)
+        try:
+            result = quick_npm_probe(
+                repo_url=target["repo"],
+                branch=target["branch"],
+                project_path=target["project_path"],
+                work_root=WORK_DIR,
+                runtime_root=RUNTIME_DIR,
+                node_majors=[22],
+                npm_versions=["10.9.9", "11.19.0"],
+            )
+            item = {
+                "repo": result.get("repo"),
+                "label": target["label"],
+                "classification": result.get("classification"),
+                "status": result.get("status"),
+                "repo_size_mb": result.get("repo_size_mb"),
+                "project_path": result.get("project_path"),
+                "matrix": result.get("matrix", []),
+            }
+            if result.get("classification") == "npm11_break_candidate":
+                candidates.append(target)
+        except Exception as exc:
+            item = {
+                "repo": target["repo"].replace("https://github.com/", ""),
+                "label": target["label"],
+                "classification": "probe_error",
+                "status": "error",
+                "error": str(exc),
+                "matrix": [],
+            }
+
+        state["results"].append(item)
+        state["probe_completed"] = idx
+        state["candidates"] = len(candidates)
+        write_research_state(state)
+
+    state["stage"] = "confirmation"
+    write_research_state(state)
+
+    # Confirm up to four npm-11 break candidates across three Node majors.
+    # Confirmation still uses dry-run + ignore-scripts so arbitrary repo scripts never execute.
+    for idx, target in enumerate(candidates[:4], start=1):
+        state["current"] = {
+            "phase": "confirmation",
+            "index": idx,
+            "total": min(4, len(candidates)),
+            "repo": target["repo"].replace("https://github.com/", ""),
+            "label": target["label"],
+        }
+        write_research_state(state)
+        try:
+            result = quick_npm_probe(
+                repo_url=target["repo"],
+                branch=target["branch"],
+                project_path=target["project_path"],
+                work_root=WORK_DIR,
+                runtime_root=RUNTIME_DIR,
+                node_majors=[22, 24, 26],
+                npm_versions=["10.9.9", "11.19.0"],
+            )
+            rows = result.get("matrix", [])
+            npm10 = [r for r in rows if r.get("npm_requested") == "10.9.9"]
+            npm11 = [r for r in rows if r.get("npm_requested") == "11.19.0"]
+            confirmed = (
+                len(npm10) == 3 and len(npm11) == 3
+                and all(r.get("status") == "pass" for r in npm10)
+                and all(r.get("status") != "pass" for r in npm11)
+            )
+            confirmation = {
+                "repo": result.get("repo"),
+                "confirmed": confirmed,
+                "classification": result.get("classification"),
+                "matrix": rows,
+            }
+        except Exception as exc:
+            confirmation = {
+                "repo": target["repo"].replace("https://github.com/", ""),
+                "confirmed": False,
+                "classification": "confirmation_error",
+                "error": str(exc),
+                "matrix": [],
+            }
+
+        state["confirmations"].append(confirmation)
+        state["confirm_completed"] = idx
+        state["confirmed"] = sum(1 for x in state["confirmations"] if x.get("confirmed"))
+        write_research_state(state)
+
+    state["current"] = None
+    state["status"] = "completed"
+    state["stage"] = "done"
+    state["finished_at"] = now_ts()
+
+    if state["confirmed"] >= 3:
+        state["monetization_gate"] = "PASSED: at least 3 independent npm 10→11 breaks reproduced. Next: package the compatibility report and test willingness to pay."
+    elif state["confirmed"] >= 1:
+        state["monetization_gate"] = "PARTIAL: reproducible failures exist, but sample is too small for a paid dataset claim."
+    else:
+        state["monetization_gate"] = "FAILED: this batch did not reproduce enough independent npm 10→11 breaks. Change hypothesis."
+    write_research_state(state)
+
+
+def start_research_thread_once():
+    global research_thread_started
+    if research_thread_started:
+        return
+    research_thread_started = True
+    thread = threading.Thread(target=research_worker, name="wid-research", daemon=True)
+    thread.start()
 
 
 def db_conn():
@@ -142,6 +335,22 @@ def worker(scan_id: str, repo_url: str, branch: str | None, project_path: str | 
         )
     except Exception as exc:
         update_scan(scan_id, status="failed", error=str(exc))
+
+
+@app.before_request
+def ensure_research_started():
+    start_research_thread_once()
+
+
+@app.get("/api/research/status")
+def research_status():
+    state = read_research_state()
+    completed = int(state.get("probe_completed", 0)) + int(state.get("confirm_completed", 0))
+    total = int(state.get("targets_total", 0)) + min(4, int(state.get("candidates", 0)))
+    state["progress_completed"] = completed
+    state["progress_total"] = max(total, int(state.get("targets_total", 0)))
+    state["progress_percent"] = round((completed / state["progress_total"] * 100), 1) if state["progress_total"] else 0
+    return jsonify(state)
 
 
 @app.get("/")
