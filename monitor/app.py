@@ -18,7 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -856,6 +856,17 @@ def startup_self_test():
     assert structured["price"] == 129.99
     assert structured["currency"] == "USD"
     assert structured["availability"] == "InStock"
+
+    client = app.test_client()
+    landing_response = client.get("/")
+    assert landing_response.status_code == 200
+    assert b"PricePulse" in landing_response.data
+    workspace_response = client.get("/app")
+    assert workspace_response.status_code == 200
+    assert b"Reliability lab" in workspace_response.data
+    metrics_response = client.get("/api/product-metrics")
+    assert metrics_response.status_code == 200
+
     try:
         validate_public_url("http://127.0.0.1/internal")
         raise AssertionError("SSRF guard failed")
