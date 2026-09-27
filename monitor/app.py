@@ -1317,8 +1317,14 @@ def public_proof():
         proof_row = conn.execute(
             """SELECT * FROM monitors
                WHERE is_demo=1
-               ORDER BY id DESC LIMIT 1"""
+               ORDER BY CASE WHEN kind='listing_feed' THEN 0 ELSE 1 END, id DESC LIMIT 1"""
         ).fetchone()
+        proof_listing_count = 0
+        if proof_row:
+            proof_listing_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM listing_items WHERE monitor_id=?",
+                (proof_row["id"],),
+            ).fetchone()["c"]
         recent_events = conn.execute(
             """SELECT e.*,m.name AS monitor_name
                FROM events e JOIN monitors m ON m.id=e.monitor_id
@@ -1327,6 +1333,8 @@ def public_proof():
         ).fetchall()
 
     proof_monitor = serialize_monitor(proof_row) if proof_row else None
+    if proof_monitor:
+        proof_monitor["listing_count"] = int(proof_listing_count or 0)
     proof_events = []
     for row in recent_events:
         item = dict(row)
