@@ -70,14 +70,14 @@
             <span class="lp-health-state {% if proof_monitor.health == 'healthy' %}ok{% endif %}">{{ proof_monitor.health|upper }}</span>
           </div>
           <dl class="lp-monitor-meta">
-            <div><dt>Rule</dt><dd>{% if proof_monitor.kind == 'listing_feed' %}new listing{% elif proof_monitor.must_contain %}watch “{{ proof_monitor.must_contain }}”{% else %}{{ proof_monitor.kind }}{% endif %}</dd></div>
-            <div><dt>Last check</dt><dd>{% if proof_monitor.last_checked_iso %}{{ proof_monitor.last_checked_iso[11:19] }} UTC{% else %}pending{% endif %}</dd></div>
+            <div><dt>Rule</dt><dd>{% if proof_monitor.kind == 'listing_feed' %}new listing ID{% elif proof_monitor.must_contain %}watch “{{ proof_monitor.must_contain }}”{% else %}{{ proof_monitor.kind }}{% endif %}</dd></div>
+            <div><dt>{% if proof_monitor.kind == 'listing_feed' %}Listings{% else %}Last check{% endif %}</dt><dd>{% if proof_monitor.kind == 'listing_feed' %}{{ proof_monitor.listing_count }} tracked{% elif proof_monitor.last_checked_iso %}{{ proof_monitor.last_checked_iso[11:19] }} UTC{% else %}pending{% endif %}</dd></div>
             <div><dt>HTTP</dt><dd>{{ proof_monitor.last_http_status or '—' }}</dd></div>
             <div><dt>Fetch</dt><dd>{% if proof_monitor.last_latency_ms is not none %}{{ proof_monitor.last_latency_ms }} ms{% else %}—{% endif %}</dd></div>
           </dl>
           <div class="lp-live-evidence">
-            <span>Latest captured text</span>
-            <p>{{ (proof_monitor.last_excerpt or 'Waiting for first production check.')[:230] }}</p>
+            <span>{% if proof_monitor.kind == 'listing_feed' %}Live baseline{% else %}Latest captured text{% endif %}</span>
+            <p>{% if proof_monitor.kind == 'listing_feed' %}{{ proof_monitor.listing_count }} marketplace listing IDs are currently stored. The next rotation is compared against those IDs so only newly appearing items become signals.{% else %}{{ (proof_monitor.last_excerpt or 'Waiting for first production check.')[:230] }}{% endif %}</p>
           </div>
         </div>
         {% else %}
