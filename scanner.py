@@ -1156,7 +1156,7 @@ def repair_npm11_lockfile(
                 "repair": repair,
             }
 
-        changed = run(["git", "status", "--porcelain"], cwd=clone_dir, timeout=30)
+        changed = run(["git", "-c", f"safe.directory={clone_dir}", "status", "--porcelain"], cwd=clone_dir, timeout=30)
         changed_paths = []
         for line in changed["output"].splitlines():
             if not line.strip():
@@ -1184,7 +1184,7 @@ def repair_npm11_lockfile(
         after_new = run(cli_new + ["ci", "--dry-run"] + common, cwd=project, env=env, timeout=min(INSTALL_TIMEOUT, 180), limits=True, drop_privileges=True)
         after_old = run(cli_old + ["ci", "--dry-run"] + common, cwd=project, env=env, timeout=min(INSTALL_TIMEOUT, 180), limits=True, drop_privileges=True)
 
-        patch = run(["git", "diff", "--", expected_rel], cwd=clone_dir, timeout=30)["output"]
+        patch = run(["git", "-c", f"safe.directory={clone_dir}", "diff", "--", expected_rel], cwd=clone_dir, timeout=30)["output"]
         add_lines = sum(1 for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++"))
         del_lines = sum(1 for line in patch.splitlines() if line.startswith("-") and not line.startswith("---"))
         verified = after_new["code"] == 0 and after_old["code"] == 0 and bool(patch.strip())
