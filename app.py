@@ -52,19 +52,20 @@ executor = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("SCAN_WORKERS", "
 write_lock = threading.Lock()
 
 
-RESEARCH_BATCH_ID = "npm11-screen-001"
+RESEARCH_BATCH_ID = "npm11-screen-002"
 RESEARCH_STATE_PATH = DATA_DIR / "research_state.json"
 research_state_lock = threading.Lock()
 research_thread_started = False
 
 RESEARCH_TARGETS = [
     {"repo": "https://github.com/Crypto-Mikael/tailwind-material", "branch": "main", "project_path": ".", "label": "positive control"},
-    {"repo": "https://github.com/Ontotext-AD/graphdb.js", "branch": None, "project_path": None, "label": "reported npm ci mismatch"},
-    {"repo": "https://github.com/advplyr/audiobookshelf", "branch": None, "project_path": None, "label": "reported npm 11 failure"},
-    {"repo": "https://github.com/nextcloud/maps", "branch": None, "project_path": None, "label": "reported npm >10 failure"},
-    {"repo": "https://github.com/red-hat-data-services/org-pulse-core", "branch": None, "project_path": None, "label": "toolchain drift case"},
-    {"repo": "https://github.com/sparq-org/sparq", "branch": None, "project_path": None, "label": "npm 10/11 lockfile drift case"},
-    {"repo": "https://github.com/able-wong/docx-markdown-utils", "branch": None, "project_path": None, "label": "optional native dependency case"},
+    {"repo": "https://github.com/Ontotext-AD/graphdb.js", "branch": None, "project_path": None, "label": "confirmed npm11 mismatch control"},
+    {"repo": "https://github.com/timkindberg/formframe", "branch": None, "project_path": None, "label": "reported npm11 esbuild optional mismatch"},
+    {"repo": "https://github.com/jQuinRivero/palimpsest", "branch": None, "project_path": "frontend", "label": "reported npm11.8+ lockfile rejection"},
+    {"repo": "https://github.com/ruvnet/metaharness", "branch": None, "project_path": None, "label": "reported npm10 pass/npm11 fail"},
+    {"repo": "https://github.com/dmccoystephenson/atomic-core", "branch": None, "project_path": None, "label": "reported npm11 emnapi lock mismatch"},
+    {"repo": "https://github.com/ConductionNL/versioniq", "branch": "development", "project_path": None, "label": "reported npm10/npm11 toolchain drift"},
+    {"repo": "https://github.com/mei-shui-xing/galatea-garden-chatgpt-wake-mcp", "branch": None, "project_path": None, "label": "reported npm11 wasi lock mismatch"},
     {"repo": "https://github.com/cheeriojs/cheerio", "branch": "main", "project_path": ".", "label": "negative control"},
     {"repo": "https://github.com/uuidjs/uuid", "branch": "main", "project_path": ".", "label": "modern npm control"},
 ]
