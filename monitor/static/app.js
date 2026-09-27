@@ -236,6 +236,31 @@ async function openMonitor(id){
   }catch(err){$('#detailBody').innerHTML='<div class="alert alert-danger">'+esc(err.message)+'</div>'}
 }
 
+function setMonitorKind(kind){
+  const valid=['price','stock','keyword','content'];
+  if(!valid.includes(kind)) kind='price';
+  $('#kind').value=kind;
+  $('.pp-kind-option').forEach(btn=>{
+    const active=btn.dataset.kind===kind;
+    btn.classList.toggle('active',active);
+    btn.setAttribute('aria-checked',active?'true':'false');
+  });
+  $('#rulePrice').classList.toggle('d-none',kind!=='price');
+  $('#ruleText').classList.toggle('d-none',!['stock','keyword'].includes(kind));
+  $('#ruleContent').classList.toggle('d-none',kind!=='content');
+
+  if(kind==='stock'){
+    $('#mustContainLabel').textContent='Availability text';
+    $('#mustContain').placeholder='In stock';
+    $('#mustContainHelp').textContent='Use the phrase the page shows when the item is available. Structured availability metadata is also detected automatically.';
+  }else if(kind==='keyword'){
+    $('#mustContainLabel').textContent='Text to watch for';
+    $('#mustContain').placeholder='Now available';
+    $('#mustContainHelp').textContent='PricePulse records when this phrase appears or disappears.';
+  }
+}
+$('.pp-kind-option').forEach(btn=>btn.addEventListener('click',()=>setMonitorKind(btn.dataset.kind)));
+
 $('#probeBtn').addEventListener('click',async()=>{
   fetch(BASE+'/api/product-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:'probe_started',meta:{source:'workspace'}}),keepalive:true}).catch(()=>{});
   const btn=$('#probeBtn'), url=$('#url').value.trim();
@@ -270,7 +295,7 @@ $('#monitorForm').addEventListener('submit',async e=>{
   try{
     const d=await fetchJSON('/api/monitors',{method:'POST',headers:headers(),body:JSON.stringify(body)});
     bootstrap.Modal.getOrCreateInstance($('#newMonitor')).hide();
-    $('#monitorForm').reset();$('#interval').value='5';$('#kind').value='price';if($('#token')) $('#token').value=localStorage.getItem('pp_token')||'';
+    $('#monitorForm').reset();$('#interval').value='5';setMonitorKind('price');if($('#token')) $('#token').value=localStorage.getItem('pp_token')||'';
     $('#probeResult').classList.add('d-none');
     await runNow(d.id);
     setView('monitors');
@@ -281,6 +306,7 @@ $('#monitorSearch').addEventListener('input',renderMonitors);
 $('#healthFilter').addEventListener('change',renderMonitors);
 $('#refreshBtn').addEventListener('click',()=>{health();loadAll()});
 
+setMonitorKind('price');
 health();loadAll();setInterval(loadAll,15000);
 
 fetch(BASE+'/api/product-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:'workspace_open',meta:{source:'direct'}}),keepalive:true}).catch(()=>{});
