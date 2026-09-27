@@ -105,7 +105,7 @@
       <div class="lp-proof-grid">
         <div class="lp-proof-card"><span>Current run</span><strong>{{ lab_passed }}/{{ lab_targets }}</strong><small>real production targets</small></div>
         <div class="lp-proof-card"><span>Rolling reachability</span><strong>{% if rolling_pass_rate is not none %}{{ rolling_pass_rate }}%{% else %}—{% endif %}</strong><small>{{ rolling_samples }} target checks</small></div>
-        <div class="lp-proof-card"><span>Rolling stability</span><strong>{% if rolling_stability_rate is not none %}{{ rolling_stability_rate }}%{% else %}—{% endif %}</strong><small>back-to-back text hash</small></div>
+        <div class="lp-proof-card"><span>Noise classification</span><strong>{% if rolling_stability_rate is not none %}{{ rolling_stability_rate }}%{% else %}—{% endif %}</strong><small>stable + dynamic controls</small></div>
         <div class="lp-proof-card"><span>Monitor snapshots</span><strong>{{ checks }}</strong><small>dated customer/proof checks</small></div>
       </div>
 
@@ -120,7 +120,7 @@
         </div>
         {% endfor %}
       </div>
-      <p class="lp-proof-disclaimer">Rolling percentages use the last {{ rolling_samples }} stored target checks, capped at 100. A passing benchmark is evidence for these targets at those check times, not a claim that every website is monitorable. Browser-only, authenticated, or anti-bot pages can require a different adapter.</p>
+      <p class="lp-proof-disclaimer">Rolling percentages use the last {{ rolling_samples }} stored target checks, capped at 100. The lab includes a live current-time API as a negative control: it should change between back-to-back fetches, so the detector has to identify noise rather than merely report every target as stable. A passing benchmark is evidence for these targets at those check times, not a claim that every website is monitorable. Browser-only, authenticated, or anti-bot pages can require a different adapter.</p>
     </div>
   </section>
 
