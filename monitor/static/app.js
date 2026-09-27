@@ -3,7 +3,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = (v='') => String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]));
 
-let state = {monitors:[],events:[],stats:{},report:{},lab:{}};
+let state = {monitors:[],events:[],stats:{},report:{},lab:{},product:{}};
 
 function token(){
   const input=$('#token');
@@ -148,13 +148,22 @@ function renderLab(){
   $('#proofText').textContent=real&&real.last_checked_iso?'Live sample page fetched '+fmtTime(real.last_checked_iso)+' · detected '+fmtPrice(real)+' · '+(real.last_error?'error: '+real.last_error:'healthy check'):'Waiting for the external demo monitor.';
 }
 
+function renderMoney(){
+  const p=state.product||{};
+  if(!$('#moneyViews')) return;
+  $('#moneyViews').textContent=p.landing_views||0;
+  $('#moneyClicks').textContent=p.pilot_clicks||0;
+  $('#moneyCtr').textContent=p.pilot_ctr==null?'—':p.pilot_ctr+'%';
+  $('#moneyProbes').textContent=p.probe_starts||0;
+}
+
 async function loadAll(){
   try{
-    const [monitors,events,stats,report,lab]=await Promise.all([
-      fetchJSON('/api/monitors'),fetchJSON('/api/events?limit=60'),fetchJSON('/api/stats'),fetchJSON('/api/report?days=7'),fetchJSON('/api/lab')
+    const [monitors,events,stats,report,lab,product]=await Promise.all([
+      fetchJSON('/api/monitors'),fetchJSON('/api/events?limit=60'),fetchJSON('/api/stats'),fetchJSON('/api/report?days=7'),fetchJSON('/api/lab'),fetchJSON('/api/product-metrics')
     ]);
-    state={monitors,events,stats,report,lab};
-    renderMetrics();renderMonitors();renderEvents();renderBrief();renderLab();
+    state={monitors,events,stats,report,lab,product};
+    renderMetrics();renderMonitors();renderEvents();renderBrief();renderLab();renderMoney();
   }catch(err){console.error(err)}
 }
 
@@ -213,6 +222,7 @@ async function openMonitor(id){
 }
 
 $('#probeBtn').addEventListener('click',async()=>{
+  fetch(BASE+'/api/product-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:'probe_started',meta:{source:'workspace'}}),keepalive:true}).catch(()=>{});
   const btn=$('#probeBtn'), url=$('#url').value.trim();
   if(!url) return;
   btn.disabled=true;btn.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Testing';
@@ -257,3 +267,5 @@ $('#healthFilter').addEventListener('change',renderMonitors);
 $('#refreshBtn').addEventListener('click',()=>{health();loadAll()});
 
 health();loadAll();setInterval(loadAll,15000);
+
+fetch(BASE+'/api/product-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:'workspace_open',meta:{source:'direct'}}),keepalive:true}).catch(()=>{});
