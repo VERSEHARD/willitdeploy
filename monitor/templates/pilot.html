@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PricePulse — Founding pilot</title>
+  <meta name="description" content="Request a 7-day PricePulse managed monitoring pilot for up to five public pages.">
+  <meta name="theme-color" content="#f5f4f0">
+  <link rel="icon" href="/pricepulse/static/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/css/tabler.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.34.1/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="/pricepulse/static/landing.css?v={{ version }}">
+</head>
+<body>
+<header class="lp-nav">
+  <div class="lp-wrap lp-nav-inner">
+    <a href="/pricepulse/" class="lp-brand">
+      <span class="lp-logo"><i class="ti ti-wave-sine"></i></span><span>PricePulse</span>
+    </a>
+    <div class="lp-nav-actions">
+      <a href="/pricepulse/" class="btn btn-ghost-secondary">Back to product</a>
+      <a href="/pricepulse/app" class="btn btn-outline-secondary">Workspace</a>
+    </div>
+  </div>
+</header>
+
+<main class="pilot-main">
+  <div class="lp-wrap pilot-grid">
+    <section class="pilot-copy">
+      <span class="lp-kicker">FOUNDING PILOT</span>
+      <h1>Give us the pages.<br>We prove the monitor first.</h1>
+      <p>Send up to five public URLs and describe the exact condition that matters. We configure the checks, validate them against the live pages, and only ask for the $5 pilot payment after the setup is working.</p>
+
+      <div class="pilot-terms">
+        <div><i class="ti ti-clock"></i><span><strong>7 days</strong><small>of scheduled monitoring</small></span></div>
+        <div><i class="ti ti-world"></i><span><strong>Up to 5 URLs</strong><small>public pages only</small></span></div>
+        <div><i class="ti ti-shield-check"></i><span><strong>Pay after proof</strong><small>no charge if setup fails</small></span></div>
+      </div>
+
+      <div class="pilot-notes">
+        <strong>Good first targets</strong>
+        <p>Pricing pages, product pages, public listings, availability pages, policy/reference pages, and pages where a specific phrase or number matters.</p>
+        <strong>Not accepted yet</strong>
+        <p>Pages behind a login, CAPTCHA/strong anti-bot protection, or targets that require arbitrary third-party browser execution on the current shared service.</p>
+      </div>
+    </section>
+
+    <section class="pilot-form-shell">
+      {% if success %}
+      <div class="pilot-success">
+        <span class="pilot-success-icon"><i class="ti ti-check"></i></span>
+        <span class="lp-kicker">REQUEST RECEIVED</span>
+        <h2>Pilot #{{ success.request_id }}</h2>
+        <p>We have {{ success.url_count }} URL{% if success.url_count != 1 %}s{% endif %}. The next step is to test the pages and confirm whether the monitoring rules can be made reliable.</p>
+        <div class="pilot-success-note">No payment is due until the setup is demonstrated to work.</div>
+        <a href="/pricepulse/" class="btn btn-primary w-100">Back to PricePulse</a>
+      </div>
+      {% else %}
+      <form method="post" class="pilot-form">
+        <div>
+          <span class="lp-kicker">REQUEST</span>
+          <h2>7-day managed pilot · $5</h2>
+          <p>One short form. No account or card required.</p>
+        </div>
+
+        {% if error %}
+        <div class="alert alert-danger" role="alert">{{ error }}</div>
+        {% endif %}
+
+        <div class="pilot-field">
+          <label for="contact">How should we reply?</label>
+          <input id="contact" name="contact" class="form-control" maxlength="180" required value="{{ submitted.contact }}" placeholder="email@example.com or @github-user">
+          <small>Email, GitHub username, or another contact you actively check.</small>
+        </div>
+
+        <div class="pilot-field">
+          <label for="urls">Public URLs <span>one per line · max 5</span></label>
+          <textarea id="urls" name="urls" class="form-control" rows="6" required placeholder="https://competitor.com/pricing&#10;https://store.example.com/product">{{ submitted.urls }}</textarea>
+        </div>
+
+        <div class="pilot-field">
+          <label for="rules">What should trigger an alert?</label>
+          <textarea id="rules" name="rules" class="form-control" rows="5" maxlength="2000" required placeholder="Example: alert when the Pro plan falls below $40, or when “In stock” appears.">{{ submitted.rules }}</textarea>
+        </div>
+
+        <div class="pilot-field">
+          <label for="delivery">Preferred alert destination <span>optional</span></label>
+          <input id="delivery" name="delivery" class="form-control" maxlength="180" value="{{ submitted.delivery }}" placeholder="Slack webhook, Discord webhook, or just the PricePulse workspace">
+        </div>
+
+        <div class="pilot-honeypot" aria-hidden="true">
+          <label for="website">Website</label><input id="website" name="website" tabindex="-1" autocomplete="off">
+        </div>
+
+        <label class="pilot-agreement">
+          <input type="checkbox" name="agreement" required>
+          <span>I understand the $5 is requested only after PricePulse demonstrates that my pages can be monitored reliably.</span>
+        </label>
+
+        <button class="btn btn-primary btn-lg w-100" type="submit">Submit pilot request</button>
+        <p class="pilot-form-foot">Submitting this form does not create a subscription or charge you.</p>
+      </form>
+      {% endif %}
+    </section>
+  </div>
+</main>
+</body>
+</html>
