@@ -18,7 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.5.1"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -931,6 +931,9 @@ def startup_self_test():
     landing_response = client.get("/", headers={"X-PricePulse-Self-Test": "1"})
     assert landing_response.status_code == 200
     assert b"PricePulse" in landing_response.data
+    assert landing_response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert landing_response.headers.get("X-Frame-Options") == "DENY"
+    assert "frame-ancestors 'none'" in landing_response.headers.get("Content-Security-Policy", "")
     workspace_response = client.get("/app")
     assert workspace_response.status_code == 200
     assert b"Reliability lab" in workspace_response.data
@@ -993,6 +996,32 @@ def seed_demo_monitor():
             ),
         )
     print("[PricePulse] real proof monitor seeded", flush=True)
+
+
+@app.after_request
+def production_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=()",
+    )
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+        "font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    )
+    if request.path.startswith("/static/"):
+        response.headers.setdefault("Cache-Control", "public, max-age=3600")
+    elif request.path.startswith("/api/") or request.path in {"/", "/app", "/pilot"}:
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
 
 
 @app.before_request
