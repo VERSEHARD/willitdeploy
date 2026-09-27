@@ -658,23 +658,36 @@ def run_monitor(monitor_id):
                         if title_ok and price_ok:
                             new_listing_items.append(item)
 
+        # Emit only signals that belong to this monitor type. Generic page churn
+        # must never turn into a false price / sold / listing alert.
+        kind = m.get("kind") or "content"
         event_types = []
-        if new_listing_items:
-            event_types.append("new_listing")
-        if changed and m.get("kind") != "listing_feed":
+        if kind == "listing_feed":
+            if new_listing_items:
+                event_types.append("new_listing")
+        elif kind == "price":
+            if price_changed:
+                event_types.append("price_changed")
+            if threshold_crossed:
+                event_types.append("price_threshold")
+        elif kind == "keyword":
+            if keyword_became_true:
+                event_types.append("keyword_match")
+            if keyword_became_false:
+                event_types.append("keyword_lost")
+        elif kind == "stock":
+            if stock_became_available:
+                event_types.append("stock_available")
+            if stock_became_unavailable:
+                event_types.append("stock_unavailable")
+            # Some sites expose stock only as visible text rather than schema metadata.
+            if stock_now is None:
+                if keyword_became_true:
+                    event_types.append("keyword_match")
+                if keyword_became_false:
+                    event_types.append("keyword_lost")
+        elif kind == "content" and changed:
             event_types.append("content_changed")
-        if price_changed:
-            event_types.append("price_changed")
-        if threshold_crossed:
-            event_types.append("price_threshold")
-        if keyword_became_true:
-            event_types.append("keyword_match")
-        if keyword_became_false:
-            event_types.append("keyword_lost")
-        if stock_became_available:
-            event_types.append("stock_available")
-        if stock_became_unavailable:
-            event_types.append("stock_unavailable")
 
         next_check = checked + int(m["interval_min"]) * 60
         checks_count = int(m.get("checks_count") or 0) + 1
