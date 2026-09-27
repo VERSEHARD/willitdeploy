@@ -14,7 +14,7 @@ from flask import Flask, jsonify, render_template, request
 
 from scanner import scan_repo, scan_fixture, regression_checks
 
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.2.2"
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -180,10 +180,19 @@ def create_scan():
         return auth
 
     payload = request.get_json(silent=True) or {}
-    repo_url = str(payload.get("repo_url", "")).strip()
-    branch = str(payload.get("branch", "")).strip() or None
-    mode = str(payload.get("mode", "static")).strip().lower()
-    project_path = str(payload.get("project_path", "")).strip() or None
+    repo_url = str(payload.get("repo_url") or "").strip()
+
+    def optional_text(value):
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        if not cleaned or cleaned.lower() in {"none", "null"}:
+            return None
+        return cleaned
+
+    branch = optional_text(payload.get("branch"))
+    mode = str(payload.get("mode") or "static").strip().lower()
+    project_path = optional_text(payload.get("project_path"))
     runtimes = payload.get("runtimes", [22, 24, 26])
 
     if mode not in {"static", "full"}:

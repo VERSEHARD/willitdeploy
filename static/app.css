@@ -1,19 +1,31 @@
-:root { --wid-border: rgba(255,255,255,.12); }
-body { min-height: 100vh; background: #0b0d10; }
-.navbar { background: rgba(11,13,16,.88); backdrop-filter: blur(12px); }
-.tracking-tight { letter-spacing: -.035em; }
-.eyebrow { font-size: .75rem; letter-spacing: .14em; font-weight: 700; color: #8ea0b8; }
-.card { background: #11151a; }
-.input-group-text, .form-control { background-color: #0d1116; border-color: var(--wid-border); }
-.form-control:focus { background-color: #0d1116; }
-.metric-row { display:flex; justify-content:space-between; gap:1rem; padding:.55rem 0; border-bottom:1px solid var(--wid-border); }
-.metric-row:last-child { border-bottom:0; }
-.status-dot { width:.55rem; height:.55rem; border-radius:50%; display:inline-block; }
-.matrix-card { min-height: 150px; }
-pre.log { max-height: 360px; overflow:auto; white-space:pre-wrap; word-break:break-word; background:#080a0d; padding:1rem; border-radius:.5rem; border:1px solid var(--wid-border); font-size:.78rem; }
-.risk-score { font-size:2rem; font-weight:700; letter-spacing:-.04em; }
-.list-group-item { background: transparent; border-color: var(--wid-border); }
-.repo-link { overflow-wrap:anywhere; }
-.badge-soft-success { background:rgba(25,135,84,.15); color:#75d6a4; }
-.badge-soft-danger { background:rgba(220,53,69,.15); color:#ff8894; }
-.badge-soft-warning { background:rgba(255,193,7,.14); color:#f6d365; }
+/* Component design comes from the human-maintained Tabler Core 1.6.0 package. */
+:root { --wid-log-bg: #0b0f14; }
+body { min-height: 100vh; }
+.brand-mark {
+  width: 30px; height: 30px; display: inline-grid; place-items: center;
+  border-radius: 8px; background: var(--tblr-primary); color: #fff;
+  font-weight: 800; font-size: .9rem;
+}
+.health-dot {
+  width: 8px; height: 8px; display: inline-block; border-radius: 999px;
+  background: var(--tblr-secondary);
+}
+.health-dot.is-online { background: var(--tblr-success); }
+.health-dot.is-offline { background: var(--tblr-danger); }
+.page-subtitle { max-width: 860px; }
+.runtime-group .form-selectgroup-item { min-width: 0; }
+.repo-link { overflow-wrap: anywhere; }
+.risk-score { font-size: 2rem; line-height: 1; font-weight: 700; letter-spacing: -.03em; }
+.matrix-card { min-height: 170px; }
+pre.log {
+  max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  margin: 0; padding: 1rem; border-radius: var(--tblr-border-radius);
+  background: var(--wid-log-bg); border: 1px solid var(--tblr-border-color);
+  font-size: .78rem; line-height: 1.5;
+}
+.result-summary { border-left: 3px solid var(--tblr-primary); }
+.history-meta { font-size: .75rem; }
+@media (max-width: 767.98px) {
+  .page-header { padding-top: 1.25rem; }
+  .page-title { line-height: 1.2; }
+}

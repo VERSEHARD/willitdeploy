@@ -1,8 +1,11 @@
-# WillItDeploy? v0.2.1
+# WillItDeploy? v0.2.2
 
 Research prototype for empirically testing Node.js runtime compatibility.
 
-## What v0.2.1 adds
+## What v0.2.2 adds
+
+- Replaced the hand-rolled frontend shell with pinned **Tabler Core 1.6.0** (MIT), a human-maintained dashboard UI package.
+- Fixed optional branch/project-path parsing so JSON `null` can never become the literal path `None`.
 
 - Finds Node projects below repo root instead of treating non-root projects as failures.
 - Detects Node pins from `engines.node`, Volta, `.nvmrc`, `.node-version`, `.tool-versions`, Docker `FROM node:...`, and Railpack/Nixpacks config.

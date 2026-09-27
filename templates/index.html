@@ -3,123 +3,176 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WillItDeploy — future runtime compatibility lab</title>
-  <meta name="description" content="Empirically test whether a Node repository still installs and builds across multiple runtimes.">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <title>WillItDeploy — Runtime Compatibility Lab</title>
+  <meta name="description" content="Empirically test Node repositories across current and upcoming runtimes.">
+  <!-- Human-maintained UI package: Tabler Core 1.6.0 (MIT), pinned deliberately. -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/css/tabler.min.css">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<nav class="navbar navbar-expand-lg border-bottom border-secondary-subtle">
-  <div class="container py-2">
-    <a class="navbar-brand fw-semibold" href="#">WillItDeploy<span class="text-secondary">?</span></a>
-    <div class="d-flex align-items-center gap-2 small">
-      <span id="healthDot" class="status-dot bg-secondary"></span>
-      <span id="healthText" class="text-secondary">checking scanner…</span>
-      <span class="badge text-bg-secondary">v{{ version }}</span>
-    </div>
-  </div>
-</nav>
-
-<main class="container py-5">
-  <div class="row g-5">
-    <section class="col-lg-7">
-      <div class="mb-4">
-        <div class="eyebrow mb-2">RUNTIME COMPATIBILITY LAB</div>
-        <h1 class="display-5 fw-bold tracking-tight">Will your repo survive the next Node runtime?</h1>
-        <p class="lead text-secondary">Clone a public GitHub repository, resolve runtime-sensitive dependencies and runtime pins, then optionally run clean installs/builds across Node 22, 24 and 26.</p>
+<div class="page">
+  <header class="navbar navbar-expand-md d-print-none border-bottom">
+    <div class="container-xl">
+      <div class="navbar-brand navbar-brand-autodark d-flex align-items-center gap-2">
+        <span class="brand-mark">W</span>
+        <span>WillItDeploy</span>
       </div>
+      <div class="navbar-nav flex-row order-md-last">
+        <div class="nav-item d-flex align-items-center gap-2">
+          <span id="healthDot" class="health-dot"></span>
+          <span id="healthText" class="text-secondary small">Checking scanner…</span>
+          <span class="badge bg-secondary-lt">v{{ version }}</span>
+        </div>
+      </div>
+    </div>
+  </header>
 
-      <div class="card shadow-sm border-secondary-subtle">
-        <div class="card-body p-4">
-          <form id="scanForm">
-            <label class="form-label fw-semibold">Public GitHub repository</label>
-            <div class="input-group input-group-lg mb-3">
-              <span class="input-group-text">github.com/</span>
-              <input id="repoInput" class="form-control" placeholder="owner/repository" autocomplete="off" required>
+  <div class="page-wrapper">
+    <div class="page-header d-print-none">
+      <div class="container-xl">
+        <div class="row g-2 align-items-end">
+          <div class="col">
+            <div class="page-pretitle">Runtime compatibility lab</div>
+            <h2 class="page-title">Will your repo survive the next Node runtime?</h2>
+            <div class="text-secondary mt-2 page-subtitle">
+              Inspect runtime-sensitive dependencies, then run isolated install/build experiments across Node 22, 24 and 26.
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-            <div class="row g-3 mb-3">
-              <div class="col-md-4">
-                <label class="form-label">Branch <span class="text-secondary">(optional)</span></label>
-                <input id="branchInput" class="form-control" placeholder="main">
-              </div>
-              <div class="col-md-4">
-                <label class="form-label">Project path <span class="text-secondary">(optional)</span></label>
-                <input id="projectPathInput" class="form-control" placeholder="apps/web">
-              </div>
-              <div class="col-md-4">
-                <label class="form-label d-block">Node matrix</label>
-                <div class="btn-group" role="group" aria-label="Node runtimes">
-                  <input type="checkbox" class="btn-check runtime-check" id="node22" value="22" checked>
-                  <label class="btn btn-outline-light" for="node22">Node 22</label>
-                  <input type="checkbox" class="btn-check runtime-check" id="node24" value="24" checked>
-                  <label class="btn btn-outline-light" for="node24">Node 24</label>
-                  <input type="checkbox" class="btn-check runtime-check" id="node26" value="26" checked>
-                  <label class="btn btn-outline-light" for="node26">Node 26</label>
+    <div class="page-body">
+      <div class="container-xl">
+        <div class="row row-cards">
+          <div class="col-12 col-xl-8">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">New experiment</h3>
+                  <div class="text-secondary small">Public GitHub repositories only</div>
                 </div>
               </div>
-            </div>
+              <div class="card-body">
+                <form id="scanForm">
+                  <div class="mb-4">
+                    <label class="form-label">Repository</label>
+                    <div class="input-group">
+                      <span class="input-group-text">github.com/</span>
+                      <input id="repoInput" class="form-control" placeholder="owner/repository" autocomplete="off" required>
+                    </div>
+                  </div>
 
-            <div class="mb-4">
-              <label class="form-label d-block">Scan mode</label>
-              <div class="form-check mb-2">
-                <input class="form-check-input" type="radio" name="mode" id="modeStatic" value="static" checked>
-                <label class="form-check-label" for="modeStatic"><strong>Static triage</strong> — fast, no package scripts executed</label>
+                  <div class="row g-3 mb-4">
+                    <div class="col-12 col-md-4">
+                      <label class="form-label">Branch <span class="text-secondary">(optional)</span></label>
+                      <input id="branchInput" class="form-control" placeholder="auto-detect default">
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label">Project path <span class="text-secondary">(optional)</span></label>
+                      <input id="projectPathInput" class="form-control" placeholder=". or apps/web">
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label">Node matrix</label>
+                      <div class="form-selectgroup w-100 runtime-group">
+                        <label class="form-selectgroup-item flex-fill">
+                          <input type="checkbox" class="form-selectgroup-input runtime-check" id="node22" value="22" checked>
+                          <span class="form-selectgroup-label text-center">22</span>
+                        </label>
+                        <label class="form-selectgroup-item flex-fill">
+                          <input type="checkbox" class="form-selectgroup-input runtime-check" id="node24" value="24" checked>
+                          <span class="form-selectgroup-label text-center">24</span>
+                        </label>
+                        <label class="form-selectgroup-item flex-fill">
+                          <input type="checkbox" class="form-selectgroup-input runtime-check" id="node26" value="26" checked>
+                          <span class="form-selectgroup-label text-center">26</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="mb-4">
+                    <label class="form-label">Scan mode</label>
+                    <div class="form-selectgroup form-selectgroup-boxes d-flex flex-column">
+                      <label class="form-selectgroup-item flex-fill">
+                        <input class="form-selectgroup-input" type="radio" name="mode" id="modeStatic" value="static" checked>
+                        <div class="form-selectgroup-label d-flex align-items-start p-3">
+                          <div>
+                            <div class="fw-semibold">Static triage</div>
+                            <div class="text-secondary small mt-1">Fast dependency and runtime-pin analysis. No package lifecycle scripts are executed.</div>
+                          </div>
+                        </div>
+                      </label>
+                      <label class="form-selectgroup-item flex-fill">
+                        <input class="form-selectgroup-input" type="radio" name="mode" id="modeFull" value="full" {% if not full_builds_enabled %}disabled{% endif %}>
+                        <div class="form-selectgroup-label d-flex align-items-start p-3">
+                          <div>
+                            <div class="d-flex align-items-center gap-2">
+                              <span class="fw-semibold">Full build matrix</span>
+                              {% if not full_builds_enabled %}<span class="badge bg-yellow-lt">Server disabled</span>{% endif %}
+                            </div>
+                            <div class="text-secondary small mt-1">Runs clean npm install/build attempts for every selected Node runtime.</div>
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                    <div class="form-hint mt-2">Full builds execute repository scripts. Keep this research instance private and scan repositories you trust.</div>
+                  </div>
+
+                  {% if token_required %}
+                  <div class="mb-4">
+                    <label class="form-label">Scan token</label>
+                    <input id="tokenInput" type="password" class="form-control" placeholder="Enter SCAN_TOKEN">
+                    <div class="form-hint">Stored only in this browser.</div>
+                  </div>
+                  {% endif %}
+
+                  <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary" type="submit">Run experiment</button>
+                    {% if full_builds_enabled %}<button class="btn btn-outline-secondary" type="button" id="selfTestBtn">Run bundled self-test</button>{% endif %}
+                  </div>
+                </form>
               </div>
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="mode" id="modeFull" value="full" {% if not full_builds_enabled %}disabled{% endif %}>
-                <label class="form-check-label" for="modeFull"><strong>Full build matrix</strong> — actually runs npm install/build on each runtime {% if not full_builds_enabled %}<span class="badge text-bg-warning">server disabled</span>{% endif %}</label>
+            </div>
+
+            <div id="resultArea" class="mt-4"></div>
+          </div>
+
+          <div class="col-12 col-xl-4">
+            <div class="card mb-4">
+              <div class="card-header"><h3 class="card-title">Scanner coverage</h3></div>
+              <div class="list-group list-group-flush">
+                <div class="list-group-item d-flex justify-content-between gap-3"><span>package.json / lockfile</span><span class="text-success">Ready</span></div>
+                <div class="list-group-item d-flex justify-content-between gap-3"><span>Transitive native addons</span><span class="text-success">Ready</span></div>
+                <div class="list-group-item d-flex justify-content-between gap-3"><span>Volta / nvm / Docker pins</span><span class="text-success">Ready</span></div>
+                <div class="list-group-item d-flex justify-content-between gap-3"><span>node-gyp / deasync evidence</span><span class="text-success">Ready</span></div>
+                <div class="list-group-item d-flex justify-content-between gap-3"><span>Node 22 / 24 / 26 install</span><span class="{% if full_builds_enabled %}text-success{% else %}text-secondary{% endif %}">{% if full_builds_enabled %}Ready{% else %}Off{% endif %}</span></div>
+                <div class="list-group-item d-flex justify-content-between gap-3"><span>Build result + signatures</span><span class="{% if full_builds_enabled %}text-success{% else %}text-secondary{% endif %}">{% if full_builds_enabled %}Ready{% else %}Off{% endif %}</span></div>
               </div>
-              <div class="form-text mt-2">Full builds execute repository install/build scripts. Keep this instance private and scan only repositories you trust.</div>
             </div>
 
-            {% if token_required %}
-            <div class="mb-3">
-              <label class="form-label">Scan token</label>
-              <input id="tokenInput" type="password" class="form-control" placeholder="SCAN_TOKEN">
-              <div class="form-text">Stored only in this browser.</div>
+            <div class="card">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                  <h3 class="card-title mb-0">Recent experiments</h3>
+                  <div class="text-secondary small">Newest first</div>
+                </div>
+                <button id="refreshHistory" class="btn btn-sm btn-ghost-secondary">Refresh</button>
+              </div>
+              <div id="history" class="list-group list-group-flush"></div>
             </div>
-            {% endif %}
-
-            <div class="d-flex flex-wrap gap-2">
-              <button class="btn btn-primary btn-lg" type="submit">Run experiment</button>
-              {% if full_builds_enabled %}<button class="btn btn-outline-secondary btn-lg" type="button" id="selfTestBtn">Run bundled self-test</button>{% endif %}
-            </div>
-          </form>
+          </div>
         </div>
       </div>
+    </div>
 
-      <div id="resultArea" class="mt-4"></div>
-    </section>
-
-    <aside class="col-lg-5">
-      <div class="card border-secondary-subtle mb-4">
-        <div class="card-header bg-transparent fw-semibold">What v0.2 measures</div>
-        <div class="card-body">
-          <div class="metric-row"><span>package.json / lockfile</span><span>✓</span></div>
-          <div class="metric-row"><span>Transitive native-addon risk</span><span>✓</span></div>
-          <div class="metric-row"><span>Volta / nvm / Docker pins</span><span>✓</span></div>
-          <div class="metric-row"><span>node-gyp / deasync versions</span><span>✓</span></div>
-          <div class="metric-row"><span>Node 22/24/26 install</span><span>{% if full_builds_enabled %}✓{% else %}off{% endif %}</span></div>
-          <div class="metric-row"><span>npm build result</span><span>{% if full_builds_enabled %}✓{% else %}off{% endif %}</span></div>
-          <div class="metric-row"><span>Failure signatures</span><span>✓</span></div>
-        </div>
+    <footer class="footer footer-transparent d-print-none">
+      <div class="container-xl">
+        <div class="text-secondary small">Research prototype. A passing build is evidence, not a deployment guarantee. Network failures and missing system libraries can create false negatives.</div>
       </div>
-
-      <div class="card border-secondary-subtle">
-        <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
-          <span class="fw-semibold">Recent experiments</span>
-          <button id="refreshHistory" class="btn btn-sm btn-outline-secondary">Refresh</button>
-        </div>
-        <div id="history" class="list-group list-group-flush"></div>
-      </div>
-    </aside>
+    </footer>
   </div>
-</main>
-
-<footer class="container pb-5 pt-2 text-secondary small">
-  v0.2 research prototype. A passing build is evidence, not a deployment guarantee. A failing build can also be caused by flaky networks, unavailable external services, or platform-specific system libraries.
-</footer>
+</div>
 
 <script>
   window.WID_CONFIG = {
@@ -127,7 +180,7 @@
     fullBuildsEnabled: {{ 'true' if full_builds_enabled else 'false' }}
   };
 </script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/js/tabler.min.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
