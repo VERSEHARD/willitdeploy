@@ -18,4 +18,4 @@ RUN mkdir -p /data /app/data /tmp/willitdeploy \
     && chmod 1777 /tmp/willitdeploy
 
 EXPOSE 8080
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 4 --timeout 900 app:app"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 4 --timeout 900 app:application"]
