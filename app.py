@@ -14,7 +14,7 @@ from flask import Flask, jsonify, render_template, request
 
 from scanner import scan_repo, scan_fixture, regression_checks, quick_npm_probe
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -242,6 +242,18 @@ def start_research_thread_once():
     if research_thread_started:
         return
     research_thread_started = True
+
+    # Persist the new batch immediately before the worker starts. This makes
+    # deployment/startup observable even if the first request arrives during
+    # Railway health checks or a previous persisted batch exists on /data.
+    state = read_research_state()
+    if state.get("status") != "completed":
+        seed = research_default_state()
+        seed["status"] = "running"
+        seed["stage"] = "starting"
+        seed["started_at"] = now_ts()
+        write_research_state(seed)
+
     thread = threading.Thread(target=research_worker, name="wid-research", daemon=True)
     thread.start()
 
