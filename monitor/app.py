@@ -18,7 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -693,26 +693,14 @@ def run_monitor(monitor_id):
 def run_reliability_lab():
     global lab_last_run
     targets = [
-        {
-            "target": "Static product page",
-            "url": "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html",
-            "expect": "£51.77",
-        },
-        {
-            "target": "Distill pricing",
-            "url": "https://distill.io/pricing/",
-            "expect": "Starter",
-        },
-        {
-            "target": "ChangeTower pricing",
-            "url": "https://changetower.com/pricing/",
-            "expect": "Business",
-        },
-        {
-            "target": "Browse AI pricing",
-            "url": "https://www.browse.ai/pricing",
-            "expect": "Professional",
-        },
+        {"target": "Distill pricing", "url": "https://distill.io/pricing/", "expect": "Starter"},
+        {"target": "ChangeTower pricing", "url": "https://changetower.com/pricing/", "expect": "Business"},
+        {"target": "Browse AI pricing", "url": "https://www.browse.ai/pricing", "expect": "Professional"},
+        {"target": "Linear pricing", "url": "https://linear.app/pricing", "expect": "Business"},
+        {"target": "GitHub pricing", "url": "https://github.com/pricing", "expect": "Enterprise"},
+        {"target": "UptimeRobot pricing", "url": "https://uptimerobot.com/pricing/", "expect": "Solo"},
+        {"target": "Visualping pricing", "url": "https://visualping.io/pricing", "expect": "Business"},
+        {"target": "Sentry pricing", "url": "https://sentry.io/pricing/", "expect": "Team"},
     ]
 
     for target in targets:
@@ -876,31 +864,41 @@ def startup_self_test():
 
 
 def seed_demo_monitor():
+    """Seed one real production-site monitor for visible proof, and remove the old demo fixture."""
     if not SEED_DEMO:
         return
     with db() as conn:
-        row = conn.execute("SELECT id FROM monitors WHERE name=?", ("Books demo under 60",)).fetchone()
+        old = conn.execute("SELECT id FROM monitors WHERE name=?", ("Books demo under 60",)).fetchone()
+        if old:
+            conn.execute("DELETE FROM snapshots WHERE monitor_id=?", (old["id"],))
+            conn.execute("DELETE FROM events WHERE monitor_id=?", (old["id"],))
+            conn.execute("DELETE FROM monitors WHERE id=?", (old["id"],))
+
+        row = conn.execute("SELECT id FROM monitors WHERE name=?", ("Live proof · Linear pricing",)).fetchone()
         if row:
             return
+
         conn.execute(
             """INSERT INTO monitors(
                 name,url,selector,must_contain,price_regex,max_price,interval_min,
-                webhook_url,enabled,created_at,next_check
-            ) VALUES(?,?,?,?,?,?,?,?,1,?,?)""",
+                webhook_url,enabled,created_at,next_check,kind,is_demo
+            ) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?)""",
             (
-                "Books demo under 60",
-                "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html",
-                ".product_main",
-                "In stock",
-                r"£([0-9.]+)",
-                60.0,
+                "Live proof · Linear pricing",
+                "https://linear.app/pricing",
+                None,
+                "Business",
+                None,
+                None,
                 60,
                 None,
                 now_ts(),
                 now_ts(),
+                "keyword",
+                1,
             ),
         )
-    print("[PricePulse] demo monitor seeded", flush=True)
+    print("[PricePulse] real proof monitor seeded", flush=True)
 
 
 @app.before_request
