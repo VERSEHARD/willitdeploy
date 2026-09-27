@@ -33,7 +33,7 @@
         <div class="row g-2 align-items-end">
           <div class="col">
             <div class="page-pretitle">Runtime compatibility lab</div>
-            <h2 class="page-title">Will your repo survive the next Node runtime?</h2>
+            <h2 class="page-title">Separate Node breakage from npm breakage.</h2>
             <div class="text-secondary mt-2 page-subtitle">
               Inspect runtime-sensitive dependencies, then run isolated install/build experiments across Node 22, 24 and 26.
             </div>
@@ -171,6 +171,24 @@
         <div class="text-secondary small">Research prototype. A passing build is evidence, not a deployment guarantee. Network failures and missing system libraries can create false negatives.</div>
       </div>
     </footer>
+  </div>
+</div>
+
+
+<div class="modal fade" id="logModal" tabindex="-1" aria-labelledby="logModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="logModalLabel">Build log</h5>
+          <div class="small text-secondary" id="logModalMeta"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-0">
+        <pre class="log log-modal mb-0" id="logModalText"></pre>
+      </div>
+    </div>
   </div>
 </div>
 
