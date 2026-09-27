@@ -45,7 +45,7 @@ function ruleLabel(m){
   return m.selector?'Selected content':'Any content change';
 }
 function kindIcon(kind){return {price:'ti-currency-dollar',stock:'ti-package',keyword:'ti-text-scan-2',content:'ti-file-diff'}[kind]||'ti-radar'}
-function eventIcon(type){return {price_threshold:'ti-tag',keyword_match:'ti-bell-check',content_changed:'ti-file-diff',baseline:'ti-camera',error:'ti-alert-triangle'}[type]||'ti-bolt'}
+function eventIcon(type){return {price_threshold:'ti-target-arrow',price_changed:'ti-arrows-exchange',keyword_match:'ti-bell-check',keyword_lost:'ti-bell-off',content_changed:'ti-file-diff',baseline:'ti-camera',error:'ti-alert-triangle'}[type]||'ti-bolt'}
 function statusHtml(m){return '<span class="pp-status '+esc(m.health)+'">'+esc(m.health)+'</span>'}
 
 function setView(name){
