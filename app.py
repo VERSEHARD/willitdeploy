@@ -11,8 +11,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 from scanner import scan_repo, scan_fixture, regression_checks, quick_npm_probe, repair_npm11_lockfile
+from monitor.app import app as pricepulse_app
 
 APP_VERSION = "0.5.1"
 BASE_DIR = Path(__file__).resolve().parent
@@ -583,3 +585,7 @@ def get_scan(scan_id: str):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")), debug=False)
+
+
+# Mount the monitoring MVP without consuming another Railway service.
+application = DispatcherMiddleware(app, {"/pricepulse": pricepulse_app})
