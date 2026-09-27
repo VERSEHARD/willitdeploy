@@ -1,6 +1,9 @@
 const $ = (s) => document.querySelector(s);
 const resultArea = $('#resultArea');
 const historyEl = $('#history');
+const logStore = new Map();
+const logModalEl = $('#logModal');
+const logModal = logModalEl ? new bootstrap.Modal(logModalEl) : null;
 
 function token() {
   const input = $('#tokenInput');
@@ -88,29 +91,57 @@ function renderStatic(s) {
 }
 
 function renderMatrix(matrix) {
+  logStore.clear();
   if (!matrix) return '';
   if (!matrix.length) return '<div class="alert alert-secondary">No build matrix was run for this repository.</div>';
-  return `<div class="row row-cards mb-3">${matrix.map(r => {
-    const logs = r.status === 'fail_install' ? r.install.output : (r.status === 'fail_build' && r.build ? r.build.output : (r.status === 'unsupported_package_manager' ? r.install.output : ''));
-    const sigs = (r.failure_signatures || []).map(s => `<li>${esc(s.explanation)}</li>`).join('');
-    const accent = r.status === 'pass' ? 'bg-success' : (r.status === 'unsupported_package_manager' ? 'bg-secondary' : 'bg-danger');
-    return `<div class="col-12 col-md-4">
-      <div class="card matrix-card h-100"><div class="card-status-top ${accent}"></div><div class="card-body">
-        <div class="d-flex justify-content-between align-items-center"><h3 class="card-title mb-0">Node ${r.node_major}</h3>${badgeFor(r.status)}</div>
-        <div class="text-secondary small mt-1">${esc(r.node_version)}${r.npm_version ? ' · npm ' + esc(r.npm_version) : ''}</div>
-        <div class="mt-3 small"><strong>Install:</strong> ${r.install.code === 0 ? '✓' : '✕'} · ${r.install.duration_seconds}s</div>
-        ${r.build ? `<div class="small"><strong>Build:</strong> ${r.build.code === 0 ? '✓' : '✕'} · ${r.build.duration_seconds}s</div>` : '<div class="small text-secondary">Build script: none / skipped</div>'}
-        ${sigs ? `<ul class="small mt-3 mb-0 ps-3">${sigs}</ul>` : ''}
-        ${logs ? `<button class="btn btn-sm btn-outline-secondary mt-3" data-bs-toggle="collapse" data-bs-target="#log${r.node_major}">Show log</button>` : ''}
-      </div></div>
-      ${logs ? `<div class="collapse mt-2" id="log${r.node_major}"><pre class="log">${esc(logs)}</pre></div>` : ''}
-    </div>`;
-  }).join('')}</div>`;
+
+  return '<div class="mb-3"><div class="d-flex justify-content-between align-items-center mb-2"><div class="fw-semibold">Node × npm results</div><div class="small text-secondary">' + matrix.length + ' isolated toolchains</div></div><div class="row g-3">' + matrix.map((r, i) => {
+    const logs = (r.status === 'fail_install' || r.status === 'fail_toolchain')
+      ? r.install.output
+      : (r.status === 'fail_build' && r.build ? r.build.output : (r.status === 'unsupported_package_manager' ? r.install.output : ''));
+    const sigs = (r.failure_signatures || []).map(s => '<li>' + esc(s.explanation) + '</li>').join('');
+    const npmLabel = r.npm_requested || r.npm_version || 'bundled';
+    const key = 'widlog-' + i + '-' + r.node_major + '-' + String(npmLabel).replace(/[^a-zA-Z0-9]/g,'');
+    if (logs) logStore.set(key, {
+      title: 'Node ' + r.node_major + ' · npm ' + npmLabel,
+      meta: r.node_version + ' · actual npm ' + (r.npm_version || 'unknown'),
+      text: logs
+    });
+    return '<div class="col-12 col-md-6 col-xxl-4"><div class="card matrix-card border-secondary-subtle h-100"><div class="card-body d-flex flex-column">' +
+      '<div class="d-flex justify-content-between align-items-start gap-2"><div><strong>Node ' + r.node_major + ' · npm ' + esc(npmLabel) + '</strong><div class="small text-secondary mt-1">' + esc(r.node_version) + '<br>actual npm ' + esc(r.npm_version || '') + '</div></div>' + badgeFor(r.status) + '</div>' +
+      '<div class="small mt-3">install: ' + (r.install.code === 0 ? '✓' : '✕') + ' · ' + r.install.duration_seconds + 's</div>' +
+      (r.build ? '<div class="small">build: ' + (r.build.code === 0 ? '✓' : '✕') + ' · ' + r.build.duration_seconds + 's</div>' : '<div class="small text-secondary">build: not run</div>') +
+      (sigs ? '<ul class="small mt-3 mb-0 ps-3">' + sigs + '</ul>' : '<div class="small text-secondary mt-3">No failure signature.</div>') +
+      (logs ? '<div class="mt-auto pt-3"><button class="btn btn-sm btn-outline-secondary" type="button" onclick="openLog(\\'' + key + '\\')">Open log</button></div>' : '') +
+      '</div></div></div>';
+  }).join('') + '</div></div>';
 }
+
+window.openLog = function(key) {
+  const item = logStore.get(key);
+  if (!item || !logModal) return;
+  $('#logModalLabel').textContent = item.title;
+  $('#logModalMeta').textContent = item.meta;
+  $('#logModalText').textContent = item.text;
+  logModal.show();
+};
+
 
 function renderRegression(checks) {
   if (!checks || !checks.length) return '';
   return `<div class="card mb-3"><div class="card-header"><h3 class="card-title">Regression checks</h3></div><div class="list-group list-group-flush">${checks.map(c => `<div class="list-group-item d-flex justify-content-between align-items-center gap-3"><span>${esc(c.name)} <span class="text-secondary small">${esc(c.detail)}</span></span>${c.pass ? '<span class="badge bg-green-lt text-green">PASS</span>' : '<span class="badge bg-red-lt text-red">FAIL</span>'}</div>`).join('')}</div></div>`;
+}
+
+
+function renderDiagnosis(d) {
+  if (!d) return '';
+  const tone = d.confidence === 'high' ? 'success' : (d.confidence === 'medium' ? 'warning' : 'secondary');
+  const evidence = (d.evidence || []).map(x => '<li>' + esc(x) + '</li>').join('');
+  return '<div class="card border-' + tone + ' mb-3"><div class="card-body">' +
+    '<div class="d-flex flex-wrap gap-2 align-items-center mb-2"><strong>Research signal</strong><span class="badge text-bg-' + tone + '">' + esc(String(d.confidence || 'unknown').toUpperCase()) + ' CONFIDENCE</span><span class="badge text-bg-secondary">' + esc(d.kind || '') + '</span></div>' +
+    '<div>' + esc(d.headline || '') + '</div>' +
+    (evidence ? '<ul class="small text-secondary mt-2 mb-0">' + evidence + '</ul>' : '') +
+    '</div></div>';
 }
 
 function renderResult(data) {
