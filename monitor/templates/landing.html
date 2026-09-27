@@ -3,199 +3,209 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PricePulse — Prices, restocks & competitor changes on autopilot</title>
+  <title>PricePulse — Stop checking the same page over and over</title>
   <meta name="description" content="Managed monitoring for public product, listing and competitor pages. Pay only after your monitors are proven to work.">
+  <meta name="theme-color" content="#f5f4f0">
+  <meta property="og:title" content="PricePulse — managed page monitoring">
+  <meta property="og:description" content="Tell us what public pages matter and what change you care about. PricePulse checks them and keeps dated evidence.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/css/tabler.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.34.1/dist/tabler-icons.min.css">\n  <link rel="preconnect" href="https://fonts.googleapis.com">\n  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.34.1/dist/tabler-icons.min.css">
   <link rel="stylesheet" href="/pricepulse/static/landing.css?v={{ version }}">
 </head>
 <body>
-  <header class="lp-nav">
-    <div class="lp-wrap lp-nav-inner">
-      <a href="/pricepulse/" class="lp-brand">
-        <span class="lp-logo"><i class="ti ti-wave-sine"></i></span>
-        <span>PricePulse</span>
-      </a>
-      <nav class="lp-nav-links">
-        <a href="#product">Product</a>
-        <a href="#proof">Live proof</a>
-        <a href="#pilot">Pricing</a>
-        <a href="#faq">FAQ</a>
-      </nav>
-      <div class="lp-nav-actions">
-        <a href="/pricepulse/app" class="btn btn-ghost-secondary">Open workspace</a>
-        <a href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=pricepulse.yml" class="btn btn-primary lp-pilot-link">Start $5 pilot</a>
+<header class="lp-nav">
+  <div class="lp-wrap lp-nav-inner">
+    <a href="/pricepulse/" class="lp-brand" aria-label="PricePulse home">
+      <span class="lp-logo"><i class="ti ti-wave-sine"></i></span>
+      <span>PricePulse</span>
+    </a>
+    <nav class="lp-nav-links" aria-label="Primary">
+      <a href="#product">Product</a>
+      <a href="#proof">Proof</a>
+      <a href="#pilot">Pilot</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="lp-nav-actions">
+      <a href="/pricepulse/app" class="btn btn-ghost-secondary lp-workspace-link">Open workspace</a>
+      <a href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=pricepulse.yml" class="btn btn-primary lp-pilot-link">Request pilot</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="lp-hero">
+    <div class="lp-wrap lp-hero-grid">
+      <div>
+        <div class="lp-eyebrow"><span class="lp-dot"></span> Managed monitoring · early access</div>
+        <h1>Stop checking the same page over and over.</h1>
+        <p class="lp-lead">Send us the public pages you care about and the exact condition to watch. PricePulse checks them on schedule, keeps dated evidence, and alerts when that condition changes.</p>
+        <div class="lp-hero-actions">
+          <a href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=pricepulse.yml" class="btn btn-primary btn-lg lp-pilot-link">Monitor up to 5 pages · $5</a>
+          <a href="/pricepulse/app" class="btn btn-outline-secondary btn-lg lp-workspace-link">Inspect the workspace</a>
+        </div>
+        <div class="lp-risk-reversal">
+          <i class="ti ti-shield-check"></i>
+          <span><strong>We configure it before you pay.</strong> If your pages cannot be monitored reliably, there is no charge.</span>
+        </div>
+      </div>
+
+      <div class="lp-product-shot" aria-label="Live PricePulse production proof">
+        <div class="lp-shot-top">
+          <div><span class="lp-mini-dot"></span> LIVE PRODUCTION MONITOR</div>
+          <span>{% if proof_monitor %}{{ proof_monitor.interval_min }} MIN{% else %}WAITING{% endif %}</span>
+        </div>
+
+        {% if proof_monitor %}
+        <div class="lp-live-monitor">
+          <div class="lp-live-monitor-head">
+            <span class="lp-shot-icon"><i class="ti ti-radar"></i></span>
+            <div>
+              <small>REAL TARGET</small>
+              <strong>{{ proof_monitor.name }}</strong>
+              <p>{{ proof_monitor.url }}</p>
+            </div>
+            <span class="lp-health-state {% if proof_monitor.health == 'healthy' %}ok{% endif %}">{{ proof_monitor.health|upper }}</span>
+          </div>
+          <dl class="lp-monitor-meta">
+            <div><dt>Rule</dt><dd>contains “Business”</dd></div>
+            <div><dt>Last check</dt><dd>{% if proof_monitor.last_checked_iso %}{{ proof_monitor.last_checked_iso[11:19] }} UTC{% else %}pending{% endif %}</dd></div>
+            <div><dt>HTTP</dt><dd>{{ proof_monitor.last_http_status or '—' }}</dd></div>
+            <div><dt>Fetch</dt><dd>{% if proof_monitor.last_latency_ms is not none %}{{ proof_monitor.last_latency_ms }} ms{% else %}—{% endif %}</dd></div>
+          </dl>
+          <div class="lp-live-evidence">
+            <span>Latest captured text</span>
+            <p>{{ (proof_monitor.last_excerpt or 'Waiting for first production check.')[:230] }}</p>
+          </div>
+        </div>
+        {% else %}
+        <div class="lp-live-monitor lp-live-monitor-empty">The first real production monitor is starting.</div>
+        {% endif %}
+
+        <div class="lp-shot-footer">
+          <span><i class="ti ti-history"></i> Dated snapshots</span>
+          <span><i class="ti ti-shield-check"></i> Real HTTP checks</span>
+        </div>
       </div>
     </div>
-  </header>
+  </section>
 
-  <main>
-    <section class="lp-hero">
-      <div class="lp-wrap lp-hero-grid">
+  <section class="lp-proof" id="proof">
+    <div class="lp-wrap">
+      <div class="lp-proof-head">
         <div>
-          <div class="lp-eyebrow"><span class="lp-dot"></span> Managed web monitoring · early access</div>
-          <h1>The web changes.<br><span>Know when it matters.</span></h1>
-          <p class="lp-lead">PricePulse watches public product, listing and competitor pages around the clock, keeps version history, filters noise, and alerts you when your rule is actually met.</p>
-          <div class="lp-hero-actions">
-            <a href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=pricepulse.yml" class="btn btn-primary btn-lg lp-pilot-link">
-              Monitor up to 5 pages for $5
-            </a>
-            <a href="/pricepulse/app" class="btn btn-outline-secondary btn-lg">See the live workspace</a>
-          </div>
-          <div class="lp-risk-reversal"><i class="ti ti-shield-check"></i><span><strong>Pay after setup works.</strong> If your pages cannot be monitored reliably, you do not pay.</span></div>
+          <span class="lp-kicker">CURRENT PRODUCTION RUN</span>
+          <h2>The benchmark uses live public websites, not demo fixtures.</h2>
         </div>
+        <span class="lp-live"><span class="lp-dot"></span> Re-runs automatically</span>
+      </div>
 
-        <div class="lp-product-shot">
-          <div class="lp-shot-top">
-            <div><span class="lp-mini-dot"></span> competitor pricing</div>
-            <span>5 min checks</span>
-          </div>
-          <div class="lp-shot-card">
-            <div class="lp-shot-row">
-              <span class="lp-shot-icon"><i class="ti ti-tag"></i></span>
-              <div><small>PRICE CHANGE</small><strong>Pro plan dropped</strong><p>$39 → $29 <b>−25.6%</b></p></div>
-              <time>2m</time>
-            </div>
-            <div class="lp-shot-row">
-              <span class="lp-shot-icon"><i class="ti ti-package-export"></i></span>
-              <div><small>RESTOCK</small><strong>Camera body available</strong><p>“In stock” appeared</p></div>
-              <time>18m</time>
-            </div>
-            <div class="lp-shot-row">
-              <span class="lp-shot-icon"><i class="ti ti-file-diff"></i></span>
-              <div><small>CONTENT</small><strong>Competitor pricing page</strong><p>Enterprise messaging changed</p></div>
-              <time>1h</time>
-            </div>
-          </div>
-          <div class="lp-shot-footer">
-            <span><i class="ti ti-history"></i> Evidence stored</span>
-            <span><i class="ti ti-webhook"></i> Webhook ready</span>
-          </div>
+      <div class="lp-proof-grid">
+        <div class="lp-proof-card"><span>Targets passing</span><strong>{{ lab_passed }}/{{ lab_targets }}</strong><small>current run</small></div>
+        <div class="lp-proof-card"><span>Reachability</span><strong>{% if lab_pass_rate is not none %}{{ lab_pass_rate }}%{% else %}—{% endif %}</strong><small>signal found twice</small></div>
+        <div class="lp-proof-card"><span>Noise stability</span><strong>{% if lab_stability_rate is not none %}{{ lab_stability_rate }}%{% else %}—{% endif %}</strong><small>back-to-back text hash</small></div>
+        <div class="lp-proof-card"><span>Snapshots stored</span><strong>{{ checks }}</strong><small>dated checks</small></div>
+      </div>
+
+      <div class="lp-target-table">
+        <div class="lp-target-row lp-target-head"><span>Production target</span><span>HTTP</span><span>Signal</span><span>Stable</span></div>
+        {% for target in lab_latest %}
+        <div class="lp-target-row">
+          <span><strong>{{ target.target }}</strong><small>{{ target.url }}</small></span>
+          <span>{{ target.http_status or '—' }}</span>
+          <span>{{ target.signal or 'not found' }}</span>
+          <span class="{% if target.stable %}lp-ok{% else %}lp-warn{% endif %}">{% if target.stable %}yes{% elif target.stable is none %}—{% else %}no{% endif %}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <p class="lp-proof-disclaimer">A passing benchmark is evidence for these targets at this time, not a claim that every website is monitorable. Browser-only, authenticated, or anti-bot pages can require a different adapter.</p>
+    </div>
+  </section>
+
+  <section class="lp-section" id="product">
+    <div class="lp-wrap">
+      <div class="lp-section-title">
+        <span class="lp-kicker">THE WORKFLOW</span>
+        <h2>A small watchlist that does the repetitive checking for you.</h2>
+        <p>Each monitor has one job: fetch a page, isolate the part that matters, compare it with the previous version, and keep evidence when the state changes.</p>
+      </div>
+
+      <div class="lp-feature-grid">
+        <article class="lp-feature"><i class="ti ti-currency-dollar"></i><h3>Price movement</h3><p>Read structured product metadata or selected page text, then record target crossings and before/after price moves.</p></article>
+        <article class="lp-feature"><i class="ti ti-package"></i><h3>Restock state</h3><p>Watch availability metadata or a phrase such as “In stock” and react when the state changes.</p></article>
+        <article class="lp-feature"><i class="ti ti-file-diff"></i><h3>Scoped diffs</h3><p>Track a CSS-selected region, suppress predictable dynamic text, and keep the resulting version history.</p></article>
+        <article class="lp-feature"><i class="ti ti-history"></i><h3>Evidence history</h3><p>Checks are stored with timestamp, HTTP status, latency, captured text, value, and the signal that fired.</p></article>
+        <article class="lp-feature"><i class="ti ti-brand-discord"></i><h3>Delivery hooks</h3><p>Send readable Slack or Discord messages, or route structured JSON into your own automation.</p></article>
+        <article class="lp-feature"><i class="ti ti-test-pipe"></i><h3>Preflight first</h3><p>Probe the URL before creating a monitor and reject obvious blocked or browser-only targets instead of pretending they work.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="lp-section lp-usecase-section">
+    <div class="lp-wrap">
+      <div class="lp-section-title">
+        <span class="lp-kicker">USE CASES</span>
+        <h2>Pages people already spend time checking manually.</h2>
+      </div>
+      <div class="lp-usecases">
+        <div class="lp-usecase active"><i class="ti ti-building-store"></i><div><strong>Competitor pricing</strong><span>Plans, packaging, promotions and feature copy.</span></div></div>
+        <div class="lp-usecase"><i class="ti ti-shopping-cart"></i><div><strong>Price & restock</strong><span>Products that are expensive, scarce, or time-sensitive.</span></div></div>
+        <div class="lp-usecase"><i class="ti ti-list-details"></i><div><strong>Listings</strong><span>Public opportunities or inventory that appears and disappears.</span></div></div>
+        <div class="lp-usecase"><i class="ti ti-file-description"></i><div><strong>Policies & pages</strong><span>Public terms, notices, disclosures and reference pages.</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="lp-section" id="pilot">
+    <div class="lp-wrap">
+      <div class="lp-offer">
+        <div class="lp-offer-copy">
+          <span class="lp-offer-label">FOUNDING PILOT</span>
+          <h2>Give us the pages.<br>We prove the monitoring first.</h2>
+          <p>The first version is intentionally managed. You tell us the pages and the signal. We configure the monitor, test it against the live page, and only then ask for payment.</p>
+          <ul>
+            <li><i class="ti ti-check"></i> Up to 5 public URLs</li>
+            <li><i class="ti ti-check"></i> 7 days of checks</li>
+            <li><i class="ti ti-check"></i> Price, stock, keyword or content rules</li>
+            <li><i class="ti ti-check"></i> Dated history and webhook delivery</li>
+            <li><i class="ti ti-check"></i> No charge if setup cannot be verified</li>
+          </ul>
+        </div>
+        <div class="lp-price-card">
+          <span>Managed pilot</span>
+          <div class="lp-price"><sup>$</sup><strong>5</strong><small>/ 7 days</small></div>
+          <p>No subscription. No card before setup.</p>
+          <a href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=pricepulse.yml" class="btn btn-primary btn-lg w-100 lp-pilot-link">Request a pilot</a>
+          <small>Public pages only during early access.</small>
         </div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="lp-proof" id="proof">
-      <div class="lp-wrap">
-        <div class="lp-proof-head">
-          <div>
-            <span class="lp-kicker">LIVE PRODUCTION BENCHMARK</span>
-            <h2>We test the monitor against real websites, not fixtures alone.</h2>
-          </div>
-          <span class="lp-live"><span class="lp-dot"></span> Updated automatically</span>
-        </div>
-
-        <div class="lp-proof-grid">
-          <div class="lp-proof-card">
-            <span>Targets passing</span>
-            <strong>{{ lab_passed }}/{{ lab_targets }}</strong>
-            <small>real public pages</small>
-          </div>
-          <div class="lp-proof-card">
-            <span>Reachability</span>
-            <strong>{% if lab_pass_rate is not none %}{{ lab_pass_rate }}%{% else %}—{% endif %}</strong>
-            <small>two-check signal test</small>
-          </div>
-          <div class="lp-proof-card">
-            <span>Noise stability</span>
-            <strong>{% if lab_stability_rate is not none %}{{ lab_stability_rate }}%{% else %}—{% endif %}</strong>
-            <small>back-to-back content hash</small>
-          </div>
-          <div class="lp-proof-card">
-            <span>Checks stored</span>
-            <strong>{{ checks }}</strong>
-            <small>dated snapshots</small>
-          </div>
-        </div>
-
-        <div class="lp-proof-note">
-          <i class="ti ti-flask-2"></i>
-          <div><strong>Current lab mix</strong><span>Static ecommerce product · Distill pricing · ChangeTower pricing · Browse AI pricing. The benchmark re-runs in production and reports failures rather than hiding them.</span></div>
-          <a href="/pricepulse/app" class="btn btn-sm btn-outline-secondary">Open reliability lab</a>
-        </div>
+  <section class="lp-section" id="faq">
+    <div class="lp-wrap lp-faq-wrap">
+      <div class="lp-section-title"><span class="lp-kicker">FAQ</span><h2>What early access can and cannot do.</h2></div>
+      <div class="accordion" id="faqAccordion">
+        <div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button" data-bs-toggle="collapse" data-bs-target="#f1">Which pages can PricePulse monitor today?</button></h2><div id="f1" class="accordion-collapse collapse show" data-bs-parent="#faqAccordion"><div class="accordion-body">Public HTML, JSON, XML and feed-style URLs that can be fetched without login. We test a URL before accepting a paid pilot.</div></div></div>
+        <div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#f2">What about JavaScript-only or anti-bot sites?</button></h2><div id="f2" class="accordion-collapse collapse" data-bs-parent="#faqAccordion"><div class="accordion-body">The current shared service does not execute arbitrary third-party JavaScript in a browser. The preflight flags obvious browser-only or blocked pages; we reject those pilots instead of charging for an unreliable setup.</div></div></div>
+        <div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#f3">Why pay instead of using a free page checker?</button></h2><div id="f3" class="accordion-collapse collapse" data-bs-parent="#faqAccordion"><div class="accordion-body">The $5 pilot pays for a configured and verified signal, not access to a blank checker. We set the rule, test the target, inspect noise, and demonstrate the live monitor before payment.</div></div></div>
+        <div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#f4">How do alerts arrive?</button></h2><div id="f4" class="accordion-collapse collapse" data-bs-parent="#faqAccordion"><div class="accordion-body">Every event is saved in the workspace. PricePulse can also post to Slack or Discord webhooks, or send structured JSON to another automation.</div></div></div>
       </div>
-    </section>
+    </div>
+  </section>
+</main>
 
-    <section class="lp-section" id="product">
-      <div class="lp-wrap">
-        <div class="lp-section-title">
-          <span class="lp-kicker">ONE WATCHLIST</span>
-          <h2>Built around decisions, not page refreshes.</h2>
-          <p>A monitor is only useful when it turns noisy web changes into something you can act on.</p>
-        </div>
-        <div class="lp-feature-grid">
-          <article class="lp-feature"><i class="ti ti-currency-dollar"></i><h3>Price intelligence</h3><p>Detect structured product prices, raw price text, target crossings and every price move with before/after evidence.</p></article>
-          <article class="lp-feature"><i class="ti ti-package"></i><h3>Restock signals</h3><p>Watch availability metadata or a phrase such as “In stock” and alert only when availability changes.</p></article>
-          <article class="lp-feature"><i class="ti ti-file-diff"></i><h3>Content diffs</h3><p>Scope checks to a CSS selector, ignore dynamic text with regex, and keep a dated history instead of sending blind “page changed” alerts.</p></article>
-          <article class="lp-feature"><i class="ti ti-report-analytics"></i><h3>Weekly briefing</h3><p>Combine individual events into a seven-day view of what moved, which pages were hottest, and what deserves attention.</p></article>
-          <article class="lp-feature"><i class="ti ti-brand-discord"></i><h3>Webhook delivery</h3><p>Native payload formatting for Slack and Discord webhooks, plus generic JSON webhooks for your own automation.</p></article>
-          <article class="lp-feature"><i class="ti ti-shield-lock"></i><h3>Safer fetching</h3><p>Private-network URLs are blocked, response size is capped, checks are timed, and the engine records failure instead of silently pretending success.</p></article>
-        </div>
-      </div>
-    </section>
+<footer class="lp-footer">
+  <div class="lp-wrap">
+    <a href="/pricepulse/" class="lp-brand"><span class="lp-logo"><i class="ti ti-wave-sine"></i></span><span>PricePulse</span></a>
+    <span>Early access · measured in production</span>
+    <a href="/pricepulse/app" class="lp-workspace-link">Workspace</a>
+  </div>
+</footer>
 
-    <section class="lp-section lp-usecase-section">
-      <div class="lp-wrap">
-        <div class="lp-section-title">
-          <span class="lp-kicker">WHERE IT EARNS ITS KEEP</span>
-          <h2>Use cases with an obvious cost of checking manually.</h2>
-        </div>
-        <div class="lp-usecases">
-          <div class="lp-usecase active"><i class="ti ti-building-store"></i><div><strong>Competitor pricing</strong><span>Know when plans, promos or packaging change.</span></div></div>
-          <div class="lp-usecase"><i class="ti ti-shopping-cart"></i><div><strong>Price & restock</strong><span>Stop refreshing hard-to-find products.</span></div></div>
-          <div class="lp-usecase"><i class="ti ti-list-details"></i><div><strong>Listings</strong><span>Catch a new or changed public listing faster.</span></div></div>
-          <div class="lp-usecase"><i class="ti ti-file-description"></i><div><strong>Policies & pages</strong><span>Keep evidence when public terms or disclosures move.</span></div></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="lp-section" id="pilot">
-      <div class="lp-wrap">
-        <div class="lp-offer">
-          <div class="lp-offer-copy">
-            <span class="badge bg-blue-lt text-blue">FOUNDING PILOT</span>
-            <h2>Give us the pages.<br>We prove the monitoring first.</h2>
-            <p>For the first users, this is deliberately a managed service. You tell us the URLs and the exact signal. We configure it, prove it works, then you pay.</p>
-            <ul>
-              <li><i class="ti ti-check"></i> Up to 5 public URLs</li>
-              <li><i class="ti ti-check"></i> 7 days of monitoring</li>
-              <li><i class="ti ti-check"></i> Price, stock, keyword or content rules</li>
-              <li><i class="ti ti-check"></i> Version history + webhook alerts</li>
-              <li><i class="ti ti-check"></i> No charge if setup cannot be verified</li>
-            </ul>
-          </div>
-          <div class="lp-price-card">
-            <span>Managed pilot</span>
-            <div class="lp-price"><sup>$</sup><strong>5</strong><small>/ 7 days</small></div>
-            <p>No subscription. No card before setup.</p>
-            <a href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=pricepulse.yml" class="btn btn-primary btn-lg w-100 lp-pilot-link">Request a pilot</a>
-            <small>Public pages only during early access.</small>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="lp-section" id="faq">
-      <div class="lp-wrap lp-faq-wrap">
-        <div class="lp-section-title">
-          <span class="lp-kicker">FAQ</span>
-          <h2>What early access can and cannot do.</h2>
-        </div>
-        <div class="accordion" id="faqAccordion">
-          <div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button" data-bs-toggle="collapse" data-bs-target="#f1">Which pages can PricePulse monitor today?</button></h2><div id="f1" class="accordion-collapse collapse show" data-bs-parent="#faqAccordion"><div class="accordion-body">Public HTML, JSON, XML and feed-style URLs that can be fetched without login. We test the URL before accepting a paid pilot.</div></div></div>
-          <div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#f2">What about JavaScript-only or anti-bot sites?</button></h2><div id="f2" class="accordion-collapse collapse" data-bs-parent="#faqAccordion"><div class="accordion-body">The current shared Railway service intentionally does not execute arbitrary third-party JavaScript in a browser because that needs stronger isolation. The URL probe detects obvious browser-only or blocked pages, and we reject the pilot instead of charging for unreliable monitoring.</div></div></div>
-          <div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#f3">Why pay when free page-change tools exist?</button></h2><div id="f3" class="accordion-collapse collapse" data-bs-parent="#faqAccordion"><div class="accordion-body">The pilot is for managed setup and a working signal, not access to another generic checker. We configure the selector/rule, test noise, verify the external page, and only charge after the setup demonstrates that it works.</div></div></div>
-          <div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#f4">How do alerts arrive?</button></h2><div id="f4" class="accordion-collapse collapse" data-bs-parent="#faqAccordion"><div class="accordion-body">The app stores every event in the workspace. It can also deliver to Slack or Discord webhooks, or send a structured JSON webhook into another automation.</div></div></div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer class="lp-footer">
-    <div class="lp-wrap"><div class="lp-brand"><span class="lp-logo"><i class="ti ti-wave-sine"></i></span><span>PricePulse</span></div><span>Early access · built and measured in production</span><a href="/pricepulse/app">Workspace</a></div>
-  </footer>
-
-  <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/js/tabler.min.js"></script>
-  <script src="/pricepulse/static/landing.js?v={{ version }}"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/js/tabler.min.js"></script>
+<script src="/pricepulse/static/landing.js?v={{ version }}"></script>
 </body>
 </html>
