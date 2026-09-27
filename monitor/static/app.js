@@ -193,16 +193,65 @@ async function health(){
   }
 }
 
+function showToast(message,{tone='default'}={}){
+  const stack=$('#ppToastStack');
+  if(!stack) return;
+  const item=document.createElement('div');
+  item.className='pp-toast '+(tone==='error'?'error':'');
+  item.innerHTML='<span class="pp-toast-dot"></span><span>'+esc(message)+'</span>';
+  stack.appendChild(item);
+  requestAnimationFrame(()=>item.classList.add('show'));
+  setTimeout(()=>{
+    item.classList.remove('show');
+    setTimeout(()=>item.remove(),180);
+  },3200);
+}
+
+let confirmHandler=null;
+function confirmAction({title='Confirm action',body='Continue?',label='Continue',tone='danger'}){
+  $('#confirmTitle').textContent=title;
+  $('#confirmBody').textContent=body;
+  const btn=$('#confirmActionBtn');
+  btn.textContent=label;
+  btn.className='btn '+(tone==='danger'?'btn-danger':'btn-primary');
+  confirmHandler=null;
+  const modal=bootstrap.Modal.getOrCreateInstance($('#confirmModal'));
+  modal.show();
+  return new Promise(resolve=>{
+    confirmHandler=()=>{resolve(true);modal.hide();};
+    $('#confirmModal').addEventListener('hidden.bs.modal',()=>resolve(false),{once:true});
+  });
+}
+$('#confirmActionBtn').addEventListener('click',()=>{if(confirmHandler){const fn=confirmHandler;confirmHandler=null;fn();}});
+
 async function runNow(id){
-  try{await fetchJSON('/api/monitors/'+id+'/run',{method:'POST',headers:headers(false)});await loadAll()}catch(err){alert(err.message)}
+  try{
+    showToast('Checking page now…');
+    const result=await fetchJSON('/api/monitors/'+id+'/run',{method:'POST',headers:headers(false)});
+    await loadAll();
+    showToast(result.ok?'Check completed':'Check failed',{tone:result.ok?'default':'error'});
+  }catch(err){showToast(err.message,{tone:'error'})}
 }
 async function toggleMonitor(id){
-  try{await fetchJSON('/api/monitors/'+id+'/toggle',{method:'POST',headers:headers(false)});await loadAll()}catch(err){alert(err.message)}
+  try{
+    const result=await fetchJSON('/api/monitors/'+id+'/toggle',{method:'POST',headers:headers(false)});
+    await loadAll();
+    showToast(result.enabled?'Monitor resumed':'Monitor paused');
+  }catch(err){showToast(err.message,{tone:'error'})}
 }
 async function removeMonitor(id){
   const m=state.monitors.find(x=>x.id===id);
-  if(!confirm('Delete '+(m?.name||'this monitor')+' and its history?')) return;
-  try{await fetchJSON('/api/monitors/'+id,{method:'DELETE',headers:headers(false)});await loadAll()}catch(err){alert(err.message)}
+  const ok=await confirmAction({
+    title:'Delete monitor?',
+    body:'Delete '+(m?.name||'this monitor')+' and its stored history. This cannot be undone.',
+    label:'Delete monitor'
+  });
+  if(!ok) return;
+  try{
+    await fetchJSON('/api/monitors/'+id,{method:'DELETE',headers:headers(false)});
+    await loadAll();
+    showToast('Monitor deleted');
+  }catch(err){showToast(err.message,{tone:'error'})}
 }
 
 function sparkline(points){
@@ -279,6 +328,10 @@ $('#probeBtn').addEventListener('click',async()=>{
 
 $('#monitorForm').addEventListener('submit',async e=>{
   e.preventDefault();$('#formError').classList.add('d-none');
+  const submitBtn=$('#createMonitorBtn');
+  const submitHtml=submitBtn.innerHTML;
+  submitBtn.disabled=true;
+  submitBtn.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Creating';
   const body={
     name:$('#name').value.trim()||new URL($('#url').value).hostname,
     url:$('#url').value.trim(),
@@ -299,7 +352,14 @@ $('#monitorForm').addEventListener('submit',async e=>{
     $('#probeResult').classList.add('d-none');
     await runNow(d.id);
     setView('monitors');
-  }catch(err){$('#formError').textContent=err.message;$('#formError').classList.remove('d-none')}
+    showToast('Monitor created');
+  }catch(err){
+    $('#formError').textContent=err.message;
+    $('#formError').classList.remove('d-none');
+  }finally{
+    submitBtn.disabled=false;
+    submitBtn.innerHTML=submitHtml;
+  }
 });
 
 $('#monitorSearch').addEventListener('input',renderMonitors);
