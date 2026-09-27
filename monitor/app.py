@@ -155,6 +155,15 @@ def migrate_schema():
         );
         CREATE INDEX IF NOT EXISTS idx_lab_runs_created
             ON lab_runs(created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS product_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            meta TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_product_events_created
+            ON product_events(created_at DESC);
         """)
 
         lab_additions = {
@@ -888,7 +897,42 @@ def boot():
     ensure_scheduler()
 
 
+def public_proof():
+    with db() as conn:
+        latest_rows = conn.execute(
+            """SELECT * FROM lab_runs
+               WHERE id IN (SELECT MAX(id) FROM lab_runs GROUP BY target)
+               ORDER BY target"""
+        ).fetchall()
+        checks = conn.execute("SELECT COUNT(*) AS c FROM snapshots").fetchone()["c"]
+        monitors = conn.execute("SELECT COUNT(*) AS c FROM monitors").fetchone()["c"]
+    latest = [dict(r) for r in latest_rows]
+    stable_values = [r for r in latest if r.get("stable") is not None]
+    return {
+        "lab_targets": len(latest),
+        "lab_passed": sum(1 for r in latest if r.get("ok")),
+        "lab_pass_rate": round(sum(1 for r in latest if r.get("ok")) / len(latest) * 100, 1) if latest else None,
+        "lab_stability_rate": round(
+            sum(1 for r in stable_values if r.get("stable")) / len(stable_values) * 100,
+            1,
+        ) if stable_values else None,
+        "checks": checks,
+        "monitors": monitors,
+    }
+
+
 @app.get("/")
+def landing():
+    proof = public_proof()
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO product_events(created_at,event_type,meta) VALUES(?,?,?)",
+            (now_ts(), "landing_view", json.dumps({"ua": (request.headers.get("User-Agent") or "")[:180]})),
+        )
+    return render_template("landing.html", version=APP_VERSION, **proof)
+
+
+@app.get("/app")
 def index():
     return render_template(
         "index.html",
@@ -933,6 +977,45 @@ def list_events():
         d["created_at_iso"] = iso(d["created_at"])
         out.append(d)
     return jsonify(out)
+
+
+@app.post("/api/product-event")
+def product_event():
+    payload = request.get_json(silent=True) or {}
+    event_type = str(payload.get("event_type") or "").strip()
+    allowed = {"pilot_click", "workspace_open", "probe_started"}
+    if event_type not in allowed:
+        return jsonify({"error": "Unsupported product event."}), 400
+    meta = payload.get("meta")
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO product_events(created_at,event_type,meta) VALUES(?,?,?)",
+            (now_ts(), event_type, json.dumps(meta)[:1000] if meta is not None else None),
+        )
+    return jsonify({"ok": True})
+
+
+@app.get("/api/product-metrics")
+def product_metrics():
+    cutoff = now_ts() - 7 * 86400
+    with db() as conn:
+        rows = conn.execute(
+            """SELECT event_type,COUNT(*) AS c
+               FROM product_events WHERE created_at>=?
+               GROUP BY event_type""",
+            (cutoff,),
+        ).fetchall()
+    counts = {row["event_type"]: row["c"] for row in rows}
+    views = int(counts.get("landing_view", 0))
+    clicks = int(counts.get("pilot_click", 0))
+    return jsonify({
+        "window_days": 7,
+        "landing_views": views,
+        "pilot_clicks": clicks,
+        "workspace_opens": int(counts.get("workspace_open", 0)),
+        "probe_starts": int(counts.get("probe_started", 0)),
+        "pilot_ctr": round(clicks / views * 100, 1) if views else None,
+    })
 
 
 @app.get("/api/stats")
