@@ -233,6 +233,24 @@
   </main>
 </div>
 
+<div id="ppToastStack" class="pp-toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+<div class="modal modal-blur fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmTitle">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content pp-modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="confirmTitle">Confirm action</h3>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body"><p id="confirmBody" class="mb-0 text-secondary small"></p></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-link" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmActionBtn">Continue</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal modal-blur fade" id="newMonitor" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <div class="modal-content pp-modal">
@@ -370,7 +388,7 @@
 
         <div class="modal-footer">
           <button type="button" class="btn btn-link" data-bs-dismiss="modal">Cancel</button>
-          <button class="btn btn-primary" type="submit"><i class="ti ti-plus me-1"></i>Create monitor</button>
+          <button id="createMonitorBtn" class="btn btn-primary" type="submit"><i class="ti ti-plus me-1"></i>Create monitor</button>
         </div>
       </form>
     </div>
