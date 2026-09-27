@@ -1,0 +1,153 @@
+name: PricePulse CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "monitor/**"
+      - "app.py"
+      - "requirements.txt"
+      - "Dockerfile"
+      - ".github/workflows/pricepulse-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      DATA_DIR: /tmp/pricepulse-ci
+      MONITOR_TOKEN: ""
+      CHECK_TICK_SECONDS: "60"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile Python
+        run: python -m compileall -q app.py scanner.py monitor
+
+      - name: PricePulse functional tests
+        run: |
+          python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          data = Path(os.environ["DATA_DIR"])
+          shutil.rmtree(data, ignore_errors=True)
+          data.mkdir(parents=True, exist_ok=True)
+
+          import monitor.app as pp
+
+          # Deterministic fetch fixture.
+          html_1 = """
+          <html><body>
+            <div class="product_main">
+              <p class="price_color">£51.77</p>
+              <p class="availability">In stock</p>
+            </div>
+          </body></html>
+          """
+          html_2 = """
+          <html><body>
+            <div class="product_main">
+              <p class="price_color">£49.99</p>
+              <p class="availability">In stock</p>
+              <p>Sale</p>
+            </div>
+          </body></html>
+          """
+
+          current = {"html": html_1}
+          pp.fetch_page = lambda url: (200, url, current["html"])
+
+          client = pp.app.test_client()
+          health = client.get("/health")
+          assert health.status_code == 200, health.data
+          assert health.get_json()["version"] == "0.1.0"
+
+          created = client.post("/api/monitors", json={
+              "name": "Fixture product",
+              "url": "https://example.com/product",
+              "selector": ".product_main",
+              "must_contain": "In stock",
+              "price_regex": r"£([0-9.]+)",
+              "max_price": 60,
+              "interval_min": 60,
+          })
+          assert created.status_code == 201, created.data
+          monitor_id = created.get_json()["id"]
+
+          first = client.post(f"/api/monitors/{monitor_id}/run")
+          assert first.status_code == 200, first.data
+          first_json = first.get_json()
+          assert first_json["ok"] is True
+          assert abs(first_json["price"] - 51.77) < 0.001
+          assert "price_threshold" in first_json["events"]
+
+          second = client.post(f"/api/monitors/{monitor_id}/run")
+          assert second.get_json()["events"] == []
+
+          current["html"] = html_2
+          third = client.post(f"/api/monitors/{monitor_id}/run")
+          third_json = third.get_json()
+          assert third_json["changed"] is True
+          assert "content_changed" in third_json["events"]
+          assert abs(third_json["price"] - 49.99) < 0.001
+
+          monitors = client.get("/api/monitors").get_json()
+          assert len(monitors) == 1
+          assert monitors[0]["last_error"] is None
+          assert abs(monitors[0]["last_price"] - 49.99) < 0.001
+
+          events = client.get("/api/events?limit=20").get_json()
+          event_types = {e["event_type"] for e in events}
+          assert {"baseline", "price_threshold", "content_changed"} <= event_types
+
+          # SSRF guard.
+          rejected = client.post("/api/monitors", json={
+              "name": "bad",
+              "url": "http://127.0.0.1:8080/admin"
+          })
+          assert rejected.status_code == 400
+          assert "Private/local" in rejected.get_json()["error"]
+
+          print("functional tests: PASS")
+          PY
+
+      - name: WSGI mount test
+        run: |
+          python - <<'PY'
+          from werkzeug.test import Client
+          from werkzeug.wrappers import Response
+          import app as root
+
+          c = Client(root.application, Response)
+          r = c.get("/pricepulse/health")
+          assert r.status_code == 200, r.get_data(as_text=True)
+          assert r.get_json()["version"] == "0.1.0"
+          page = c.get("/pricepulse/")
+          assert page.status_code == 200
+          assert "PricePulse" in page.get_data(as_text=True)
+          print("mounted app: PASS")
+          PY
+
+      - name: Live public-page parsing test
+        run: |
+          python - <<'PY'
+          import monitor.app as pp
+          status, final_url, html = pp.fetch_page(
+              "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html"
+          )
+          content = pp.extract_content(html, ".product_main")
+          price = pp.extract_price(content, r"£([0-9.]+)")
+          assert status == 200
+          assert price is not None and price > 0
+          print("live fetch: PASS", final_url, price)
+          PY
