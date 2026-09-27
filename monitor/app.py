@@ -882,7 +882,7 @@ def seed_demo_monitor():
             """INSERT INTO monitors(
                 name,url,selector,must_contain,price_regex,max_price,interval_min,
                 webhook_url,enabled,created_at,next_check,kind,is_demo
-            ) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?)""",
+            ) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?)""",
             (
                 "Live proof · Linear pricing",
                 "https://linear.app/pricing",
