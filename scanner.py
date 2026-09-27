@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import platform
@@ -12,7 +11,9 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import urllib.parse
 import urllib.request
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -20,11 +21,17 @@ MAX_LOG_CHARS = 120_000
 MAX_REPO_MB = int(os.getenv("MAX_REPO_MB", "250"))
 INSTALL_TIMEOUT = int(os.getenv("INSTALL_TIMEOUT_SECONDS", "480"))
 BUILD_TIMEOUT = int(os.getenv("BUILD_TIMEOUT_SECONDS", "480"))
+REGISTRY_TIMEOUT = int(os.getenv("REGISTRY_TIMEOUT_SECONDS", "8"))
+REGISTRY_MAX_PACKAGES = int(os.getenv("STATIC_REGISTRY_MAX_PACKAGES", "160"))
+REGISTRY_MAX_DEPTH = int(os.getenv("STATIC_REGISTRY_MAX_DEPTH", "4"))
+BUILD_UID = int(os.getenv("BUILD_UID", "65534"))
+BUILD_GID = int(os.getenv("BUILD_GID", "65534"))
 
 KNOWN_NATIVE_OR_RISKY = {
     "deasync": "Native addon; older releases can break across Node/Python/node-gyp changes.",
     "node-sass": "Deprecated native addon; historically sensitive to Node ABI changes.",
     "bcrypt": "Native addon in many versions; runtime compatibility depends on prebuilt binaries/toolchain.",
+    "bcryptjs": "Pure-JS bcrypt implementation; lower runtime risk than native bcrypt, retained for comparison.",
     "sharp": "Native dependency; usually ships prebuilds but runtime/platform support matters.",
     "canvas": "Native dependency; may require system libraries and compilation.",
     "sqlite3": "Native addon; prebuilt binary availability varies by runtime/platform.",
@@ -32,14 +39,32 @@ KNOWN_NATIVE_OR_RISKY = {
     "grpc": "Legacy native package; modern projects usually use @grpc/grpc-js.",
     "fsevents": "Platform-specific native dependency (macOS only).",
     "ffi-napi": "Native FFI addon; can be sensitive to Node ABI/toolchain changes.",
+    "ref-napi": "Native FFI support package; can be sensitive to Node ABI/toolchain changes.",
+    "serialport": "Often contains native bindings or prebuilt binaries tied to runtime/platform support.",
+    "usb": "Native USB bindings; requires compatible prebuilds/toolchain/system libraries.",
+    "leveldown": "Native LevelDB binding; runtime/platform compatibility matters.",
+    "lmdb": "Native database binding; typically relies on prebuilt binaries or compilation.",
+    "isolated-vm": "Native V8 addon tightly coupled to Node/V8 versions.",
+    "cpu-features": "Native addon used by some SSH/crypto stacks.",
 }
 
+PURE_JS_INFORMATIONAL = {"bcryptjs"}
 
-def run(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None = None, timeout: int = 120, limits: bool = False) -> dict[str, Any]:
+_registry_cache: dict[str, dict[str, Any] | None] = {}
+
+
+def run(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None = None, timeout: int = 120, limits: bool = False, drop_privileges: bool = False) -> dict[str, Any]:
     started = time.time()
 
     def preexec():
         os.setsid()
+        if drop_privileges and os.geteuid() == 0:
+            try:
+                os.setgroups([])
+                os.setgid(BUILD_GID)
+                os.setuid(BUILD_UID)
+            except Exception:
+                pass
         if limits:
             try:
                 resource.setrlimit(resource.RLIMIT_CPU, (max(60, timeout), max(60, timeout + 5)))
@@ -85,13 +110,14 @@ def run(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None = No
 def repo_slug(repo_url: str) -> str:
     m = re.fullmatch(r"https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?", repo_url)
     if not m:
-        raise ValueError("Only public GitHub repository URLs are supported in v0.1")
+        raise ValueError("Only public GitHub repository URLs are supported")
     return f"{m.group(1)}/{m.group(2)}"
 
 
 def folder_size_mb(path: Path) -> float:
     total = 0
-    for root, _, files in os.walk(path):
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [d for d in dirs if d not in {".git", "node_modules"}]
         for f in files:
             try:
                 total += (Path(root) / f).stat().st_size
@@ -110,105 +136,505 @@ def clone_repo(repo_url: str, branch: str | None, destination: Path):
         raise RuntimeError("git clone failed:\n" + result["output"][-5000:])
     size = folder_size_mb(destination)
     if size > MAX_REPO_MB:
-        raise RuntimeError(f"Repository is {size} MB after shallow clone; v0.1 limit is {MAX_REPO_MB} MB")
+        raise RuntimeError(f"Repository is {size} MB after shallow clone; limit is {MAX_REPO_MB} MB")
     return size
 
 
 def load_json(path: Path) -> dict[str, Any]:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
     except Exception:
         return {}
 
 
-def static_analysis(repo: Path) -> dict[str, Any]:
-    package_path = repo / "package.json"
-    lock_path = repo / "package-lock.json"
-    if not package_path.exists():
-        raise RuntimeError("No package.json found at repository root. v0.1 scans root-level Node projects only.")
+def discover_node_projects(repo: Path, max_depth: int = 4) -> list[str]:
+    projects = []
+    ignored = {".git", "node_modules", ".next", "dist", "build", "coverage", ".cache", "vendor"}
+    for root, dirs, files in os.walk(repo):
+        rel = Path(root).relative_to(repo)
+        if len(rel.parts) > max_depth:
+            dirs[:] = []
+            continue
+        dirs[:] = [d for d in dirs if d not in ignored and not d.startswith(".")]
+        if "package.json" in files:
+            projects.append("." if str(rel) == "." else rel.as_posix())
+    return sorted(set(projects), key=lambda p: (0 if p == "." else len(Path(p).parts), p))
 
+
+def choose_project(repo: Path, requested: str | None = None) -> tuple[Path | None, list[str], str | None]:
+    projects = discover_node_projects(repo)
+    if requested:
+        clean = requested.strip().strip("/") or "."
+        target = repo if clean == "." else repo / clean
+        target = target.resolve()
+        repo_resolved = repo.resolve()
+        if repo_resolved != target and repo_resolved not in target.parents:
+            raise RuntimeError("Project path must stay inside the repository")
+        if not (target / "package.json").exists():
+            raise RuntimeError(f"No package.json found at project path: {clean}")
+        return target, projects, clean
+    if (repo / "package.json").exists():
+        return repo, projects, "."
+    if projects:
+        chosen = projects[0]
+        return repo / chosen, projects, chosen
+    return None, [], None
+
+
+def declared_dependencies(package: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    deps: dict[str, dict[str, Any]] = {}
+    for bucket in ("dependencies", "optionalDependencies", "devDependencies", "peerDependencies"):
+        values = package.get(bucket) or {}
+        if not isinstance(values, dict):
+            continue
+        for name, version in values.items():
+            item = deps.setdefault(name, {"declared": str(version), "buckets": []})
+            item["buckets"].append(bucket)
+    return deps
+
+
+def package_name_from_lock_path(path: str) -> str | None:
+    if not path or "node_modules/" not in path:
+        return None
+    tail = path.rsplit("node_modules/", 1)[-1]
+    if tail.startswith("@"):
+        parts = tail.split("/")
+        return "/".join(parts[:2]) if len(parts) >= 2 else None
+    return tail.split("/", 1)[0]
+
+
+def walk_v1_dependencies(tree: dict[str, Any], prefix: list[str] | None = None):
+    prefix = prefix or []
+    for name, meta in (tree or {}).items():
+        if not isinstance(meta, dict):
+            continue
+        version = str(meta.get("version") or "")
+        path = prefix + [f"{name}@{version}" if version else name]
+        yield name, version, path
+        nested = meta.get("dependencies")
+        if isinstance(nested, dict):
+            yield from walk_v1_dependencies(nested, path)
+
+
+def lock_inventory(lock: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    inventory: dict[str, list[dict[str, Any]]] = {}
+    packages = lock.get("packages") if isinstance(lock, dict) else None
+    if isinstance(packages, dict):
+        for path, meta in packages.items():
+            if not isinstance(meta, dict):
+                continue
+            name = meta.get("name") or package_name_from_lock_path(str(path))
+            if not name:
+                continue
+            inventory.setdefault(str(name), []).append({
+                "version": str(meta.get("version") or ""),
+                "lock_path": str(path),
+                "source": "lockfile",
+            })
+    deps = lock.get("dependencies") if isinstance(lock, dict) else None
+    if isinstance(deps, dict):
+        for name, version, path in walk_v1_dependencies(deps):
+            inventory.setdefault(name, []).append({"version": version, "path": path, "source": "lockfile-v1"})
+    return inventory
+
+
+def find_versions_in_inventory(inventory: dict[str, list[dict[str, Any]]], name: str) -> list[str]:
+    return sorted({str(x.get("version") or "") for x in inventory.get(name, []) if x.get("version")})
+
+
+def parse_version(value: str) -> tuple[int, int, int, str] | None:
+    v = str(value).strip().lstrip("v")
+    m = re.fullmatch(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+]([0-9A-Za-z.-]+))?", v)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2) or 0), int(m.group(3) or 0), m.group(4) or ""
+
+
+def stable_versions(metadata: dict[str, Any]) -> list[tuple[tuple[int, int, int, str], str]]:
+    out = []
+    for version in (metadata.get("versions") or {}).keys():
+        parsed = parse_version(version)
+        if parsed and not parsed[3]:
+            out.append((parsed, version))
+    return sorted(out, key=lambda x: x[0][:3])
+
+
+def cmp_core(v: tuple[int, int, int, str], target: tuple[int, int, int, str]) -> int:
+    a, b = v[:3], target[:3]
+    return (a > b) - (a < b)
+
+
+def comparator_match(version: tuple[int, int, int, str], token: str) -> bool:
+    token = token.strip()
+    if not token or token in {"*", "latest"}:
+        return True
+    m = re.fullmatch(r"(>=|<=|>|<|=)?\s*v?(\d+)(?:\.(\d+|x|X|\*))?(?:\.(\d+|x|X|\*))?", token)
+    if not m:
+        return True
+    op = m.group(1) or "="
+    parts = [m.group(2), m.group(3), m.group(4)]
+    wildcard = any(p in {None, "x", "X", "*"} for p in parts[1:])
+    nums = [int(parts[0]), int(parts[1]) if parts[1] and parts[1].isdigit() else 0, int(parts[2]) if parts[2] and parts[2].isdigit() else 0]
+    target = (nums[0], nums[1], nums[2], "")
+    if wildcard and op == "=":
+        if parts[1] in {None, "x", "X", "*"}:
+            return version[0] == nums[0]
+        return version[0] == nums[0] and version[1] == nums[1]
+    c = cmp_core(version, target)
+    return {">=": c >= 0, "<=": c <= 0, ">": c > 0, "<": c < 0, "=": c == 0}.get(op, True)
+
+
+def spec_matches(version: tuple[int, int, int, str], spec: str) -> bool:
+    raw = str(spec or "*").strip()
+    if raw.startswith("npm:"):
+        raw = raw.rsplit("@", 1)[-1] if "@" in raw[4:] else "*"
+    if raw in {"", "*", "latest"}:
+        return True
+    if any(raw.startswith(prefix) for prefix in ("git+", "github:", "http:", "https:", "file:", "link:", "workspace:")):
+        return False
+    for alternative in raw.split("||"):
+        s = alternative.strip()
+        if not s:
+            continue
+        if s.startswith("^"):
+            base = parse_version(s[1:])
+            if not base:
+                continue
+            if base[0] > 0:
+                upper = (base[0] + 1, 0, 0, "")
+            elif base[1] > 0:
+                upper = (0, base[1] + 1, 0, "")
+            else:
+                upper = (0, 0, base[2] + 1, "")
+            if cmp_core(version, base) >= 0 and cmp_core(version, upper) < 0:
+                return True
+            continue
+        if s.startswith("~"):
+            base = parse_version(s[1:])
+            if not base:
+                continue
+            upper = (base[0], base[1] + 1, 0, "")
+            if cmp_core(version, base) >= 0 and cmp_core(version, upper) < 0:
+                return True
+            continue
+        tokens = [t for t in re.split(r"\s+", s) if t]
+        if tokens and all(comparator_match(version, t) for t in tokens):
+            return True
+    return False
+
+
+def registry_metadata(name: str) -> dict[str, Any] | None:
+    if name in _registry_cache:
+        return _registry_cache[name]
+    try:
+        encoded = urllib.parse.quote(name, safe="")
+        req = urllib.request.Request(f"https://registry.npmjs.org/{encoded}", headers={"User-Agent": "WillItDeploy/0.2"})
+        with urllib.request.urlopen(req, timeout=REGISTRY_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            _registry_cache[name] = data if isinstance(data, dict) else None
+    except Exception:
+        _registry_cache[name] = None
+    return _registry_cache[name]
+
+
+def resolve_registry_version(name: str, spec: str) -> tuple[str | None, dict[str, Any] | None]:
+    actual_name = name
+    actual_spec = spec
+    if str(spec).startswith("npm:"):
+        alias = str(spec)[4:]
+        if alias.startswith("@"):
+            idx = alias.rfind("@")
+            if idx > 0:
+                actual_name, actual_spec = alias[:idx], alias[idx + 1:]
+            else:
+                actual_name, actual_spec = alias, "*"
+        elif "@" in alias:
+            actual_name, actual_spec = alias.rsplit("@", 1)
+        else:
+            actual_name, actual_spec = alias, "*"
+    metadata = registry_metadata(actual_name)
+    if not metadata:
+        return None, None
+    versions = stable_versions(metadata)
+    candidates = [raw for parsed, raw in versions if spec_matches(parsed, actual_spec)]
+    if not candidates:
+        latest = (metadata.get("dist-tags") or {}).get("latest")
+        if latest and actual_spec in {"", "*", "latest"}:
+            candidates = [latest]
+    if not candidates:
+        return None, None
+    version = candidates[-1]
+    meta = (metadata.get("versions") or {}).get(version)
+    return version, meta if isinstance(meta, dict) else None
+
+
+def registry_risky_paths(package: dict[str, Any]) -> dict[str, Any]:
+    seeds = []
+    for bucket in ("dependencies", "optionalDependencies", "devDependencies"):
+        values = package.get(bucket) or {}
+        if isinstance(values, dict):
+            priority = 0 if bucket in {"dependencies", "optionalDependencies"} else 1
+            for name, spec in values.items():
+                seeds.append((priority, name, str(spec), [f"ROOT ({bucket})"]))
+    seeds.sort(key=lambda x: x[0])
+    q = deque((name, spec, path, 1) for _, name, spec, path in seeds)
+    seen: set[tuple[str, str]] = set()
+    hits: dict[str, list[dict[str, Any]]] = {}
+    visited = 0
+    errors = 0
+    truncated = False
+
+    while q and visited < REGISTRY_MAX_PACKAGES:
+        name, spec, parent_path, depth = q.popleft()
+        key = (name, spec)
+        if key in seen:
+            continue
+        seen.add(key)
+        visited += 1
+        version, meta = resolve_registry_version(name, spec)
+        if not version or not meta:
+            errors += 1
+            continue
+        step = f"{name}@{version}"
+        path = parent_path + [step]
+        if name in KNOWN_NATIVE_OR_RISKY:
+            hits.setdefault(name, []).append({"version": version, "path": path, "source": "npm-registry"})
+        if depth >= REGISTRY_MAX_DEPTH:
+            continue
+        children = {}
+        for bucket in ("dependencies", "optionalDependencies"):
+            vals = meta.get(bucket) or {}
+            if isinstance(vals, dict):
+                children.update({str(k): str(v) for k, v in vals.items()})
+        for child, child_spec in children.items():
+            q.append((child, child_spec, path, depth + 1))
+
+    if q:
+        truncated = True
+    return {
+        "hits": hits,
+        "visited_packages": visited,
+        "lookup_errors": errors,
+        "truncated": truncated,
+        "max_depth": REGISTRY_MAX_DEPTH,
+        "max_packages": REGISTRY_MAX_PACKAGES,
+    }
+
+
+def read_text(path: Path, max_chars: int = 30_000) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")[:max_chars]
+    except Exception:
+        return ""
+
+
+def detect_runtime_pins(project: Path, repo: Path, package: dict[str, Any]) -> list[dict[str, str]]:
+    pins: list[dict[str, str]] = []
+
+    engines = package.get("engines") or {}
+    if isinstance(engines, dict) and engines.get("node"):
+        pins.append({"source": "package.json engines.node", "value": str(engines["node"])})
+    volta = package.get("volta") or {}
+    if isinstance(volta, dict) and volta.get("node"):
+        pins.append({"source": "package.json volta.node", "value": str(volta["node"])})
+
+    candidates = []
+    for base in {project, repo}:
+        candidates += [
+            (base / ".nvmrc", ".nvmrc"),
+            (base / ".node-version", ".node-version"),
+            (base / ".tool-versions", ".tool-versions"),
+            (base / "volta.json", "volta.json"),
+            (base / "Dockerfile", "Dockerfile"),
+            (base / "railway.toml", "railway.toml"),
+            (base / "nixpacks.toml", "nixpacks.toml"),
+            (base / "railway.json", "railway.json"),
+        ]
+    seen_files = set()
+    for path, label in candidates:
+        try:
+            key = str(path.resolve())
+        except Exception:
+            key = str(path)
+        if key in seen_files or not path.exists():
+            continue
+        seen_files.add(key)
+        text = read_text(path)
+        if label in {".nvmrc", ".node-version"}:
+            value = text.strip().splitlines()[0] if text.strip() else ""
+            if value:
+                pins.append({"source": label, "value": value})
+        elif label == ".tool-versions":
+            m = re.search(r"(?mi)^nodejs\s+([^\s]+)", text)
+            if m:
+                pins.append({"source": label, "value": m.group(1)})
+        elif label == "volta.json":
+            data = load_json(path)
+            if data.get("node"):
+                pins.append({"source": label, "value": str(data["node"])})
+        elif label == "Dockerfile":
+            for value in re.findall(r"(?mi)^\s*FROM\s+node:([^\s@]+)", text):
+                pins.append({"source": "Dockerfile FROM node", "value": value})
+        else:
+            for value in re.findall(r"RAILPACK_NODE_VERSION\s*[=:]\s*[\"']?([^\s\"',}]+)", text):
+                pins.append({"source": f"{label} RAILPACK_NODE_VERSION", "value": value})
+            for value in re.findall(r"NIXPACKS_NODE_VERSION\s*[=:]\s*[\"']?([^\s\"',}]+)", text):
+                pins.append({"source": f"{label} NIXPACKS_NODE_VERSION", "value": value})
+
+    dedup = []
+    used = set()
+    for pin in pins:
+        key = (pin["source"], pin["value"])
+        if key not in used:
+            used.add(key)
+            dedup.append(pin)
+    return dedup
+
+
+def detect_package_manager(project: Path, package: dict[str, Any]) -> dict[str, Any]:
+    pm = package.get("packageManager")
+    if isinstance(pm, str) and pm:
+        name = pm.split("@", 1)[0]
+        return {"name": name, "source": "package.json packageManager", "value": pm}
+    if (project / "pnpm-lock.yaml").exists():
+        return {"name": "pnpm", "source": "pnpm-lock.yaml", "value": None}
+    if (project / "yarn.lock").exists():
+        return {"name": "yarn", "source": "yarn.lock", "value": None}
+    if (project / "package-lock.json").exists() or (project / "npm-shrinkwrap.json").exists():
+        return {"name": "npm", "source": "npm lockfile", "value": None}
+    return {"name": "npm", "source": "default", "value": None}
+
+
+def static_analysis(repo: Path, project: Path | None, discovered_projects: list[str], selected_project: str | None) -> dict[str, Any]:
+    if project is None:
+        return {
+            "node_project_found": False,
+            "selected_project": None,
+            "discovered_projects": discovered_projects,
+            "risk_score": 0,
+            "risk_reasons": ["No package.json discovered in the repository within scan depth."],
+            "native_or_risky_dependencies": [],
+            "dependency_count": 0,
+            "lockfile": None,
+            "runtime_pins": [],
+            "package_manager": None,
+            "registry_resolution": None,
+            "node_gyp_versions": [],
+            "deasync_versions": [],
+            "scripts": [],
+            "config_files": [],
+        }
+
+    package_path = project / "package.json"
     package = load_json(package_path)
-    lock = load_json(lock_path) if lock_path.exists() else {}
-    deps = {}
-    for bucket in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
-        for name, version in (package.get(bucket) or {}).items():
-            deps.setdefault(name, {"declared": version, "buckets": []})["buckets"].append(bucket)
+    deps = declared_dependencies(package)
+
+    lock_path = None
+    for name in ("package-lock.json", "npm-shrinkwrap.json"):
+        if (project / name).exists():
+            lock_path = project / name
+            break
+    lock = load_json(lock_path) if lock_path else {}
+    inventory = lock_inventory(lock) if lock else {}
 
     native_flags = []
     for name, why in KNOWN_NATIVE_OR_RISKY.items():
-        if name in deps or package_in_lock(lock, name):
-            native_flags.append({"package": name, "why": why, "declared": deps.get(name, {}).get("declared")})
+        versions = find_versions_in_inventory(inventory, name)
+        if name in deps or versions:
+            native_flags.append({
+                "package": name,
+                "why": why,
+                "declared": deps.get(name, {}).get("declared"),
+                "versions": versions,
+                "source": "direct/lockfile",
+                "paths": [],
+                "informational": name in PURE_JS_INFORMATIONAL,
+            })
+
+    registry_resolution = None
+    # Lockfiles are stronger evidence. If none exists, query npm metadata recursively without executing package scripts.
+    if not lock_path:
+        registry_resolution = registry_risky_paths(package)
+        for name, paths in registry_resolution["hits"].items():
+            if any(x["package"] == name for x in native_flags):
+                existing = next(x for x in native_flags if x["package"] == name)
+                existing["paths"].extend([x.get("path") for x in paths if x.get("path")])
+                existing["versions"] = sorted(set(existing.get("versions", []) + [x["version"] for x in paths if x.get("version")]))
+            else:
+                native_flags.append({
+                    "package": name,
+                    "why": KNOWN_NATIVE_OR_RISKY[name],
+                    "declared": None,
+                    "versions": sorted({x["version"] for x in paths if x.get("version")}),
+                    "source": "npm-registry-transitive",
+                    "paths": [x.get("path") for x in paths if x.get("path")],
+                    "informational": name in PURE_JS_INFORMATIONAL,
+                })
 
     scripts = package.get("scripts") or {}
-    engines = package.get("engines") or {}
-    package_manager = package.get("packageManager")
-    node_gyp_versions = find_versions_in_lock(lock, "node-gyp")
-    deasync_versions = find_versions_in_lock(lock, "deasync")
+    if not isinstance(scripts, dict):
+        scripts = {}
+    runtime_pins = detect_runtime_pins(project, repo, package)
+    package_manager = detect_package_manager(project, package)
+    node_gyp_versions = find_versions_in_inventory(inventory, "node-gyp")
+    deasync_versions = find_versions_in_inventory(inventory, "deasync")
 
-    config_files = [
-        name for name in [
-            "Dockerfile", "railway.json", "railway.toml", "nixpacks.toml", "Procfile", ".nvmrc", ".node-version", "volta.json"
-        ] if (repo / name).exists()
+    config_names = [
+        "Dockerfile", "railway.json", "railway.toml", "nixpacks.toml", "Procfile",
+        ".nvmrc", ".node-version", ".tool-versions", "volta.json"
     ]
+    config_files = sorted({name for name in config_names if (project / name).exists() or (repo / name).exists()})
 
     risk = 0
     reasons = []
-    if native_flags:
-        risk += min(40, 8 * len(native_flags))
-        reasons.append(f"{len(native_flags)} native/runtime-sensitive package(s) detected")
+    real_native_flags = [x for x in native_flags if not x.get("informational")]
+    if real_native_flags:
+        risk += min(45, 9 * len(real_native_flags))
+        transitive = [x for x in real_native_flags if x.get("source") == "npm-registry-transitive"]
+        reasons.append(f"{len(real_native_flags)} native/runtime-sensitive package(s) detected")
+        if transitive:
+            reasons.append(f"{len(transitive)} risky package(s) were only visible transitively via npm metadata")
     if node_gyp_versions:
-        old = [v for v in node_gyp_versions if major_of(v) and major_of(v) < 10]
+        old = [v for v in node_gyp_versions if major_of(v) is not None and major_of(v) < 10]
         if old:
             risk += 25
             reasons.append("node-gyp <10 appears in the lockfile; Python 3.12+ compatibility can be a problem")
-    if not engines.get("node"):
+    if not runtime_pins:
         risk += 10
-        reasons.append("No Node engine range is pinned in package.json")
-    if not lock_path.exists():
+        reasons.append("No Node runtime pin detected (engines/Volta/nvm/node-version/Docker/Railpack)")
+    if not lock_path:
         risk += 10
-        reasons.append("No package-lock.json found; installs may drift")
+        reasons.append("No npm lockfile found; fresh installs may drift")
+    if package_manager["name"] != "npm":
+        reasons.append(f"Package manager is {package_manager['name']}; v0.2 full-build execution is npm-first")
     if "build" not in scripts:
-        reasons.append("No npm build script found; full scan will only validate install")
+        reasons.append("No npm build script found; full scan will validate install only")
+    if len(discovered_projects) > 1:
+        reasons.append(f"Repository contains {len(discovered_projects)} Node project(s); scanning {selected_project}")
     risk = min(100, risk)
 
     return {
-        "name": package.get("name") or repo.name,
+        "node_project_found": True,
+        "selected_project": selected_project,
+        "discovered_projects": discovered_projects,
+        "name": package.get("name") or project.name,
         "version": package.get("version"),
-        "engines": engines,
+        "engines": package.get("engines") or {},
+        "volta": package.get("volta") or {},
+        "runtime_pins": runtime_pins,
         "package_manager": package_manager,
         "scripts": sorted(scripts.keys()),
         "dependency_count": len(deps),
-        "lockfile": "package-lock.json" if lock_path.exists() else None,
+        "lockfile": lock_path.name if lock_path else None,
         "config_files": config_files,
-        "native_or_risky_dependencies": native_flags,
+        "native_or_risky_dependencies": sorted(native_flags, key=lambda x: (x.get("informational", False), x["package"])),
         "node_gyp_versions": node_gyp_versions,
         "deasync_versions": deasync_versions,
         "risk_score": risk,
         "risk_reasons": reasons,
+        "registry_resolution": registry_resolution,
     }
-
-
-def package_in_lock(lock: dict[str, Any], name: str) -> bool:
-    packages = lock.get("packages") if isinstance(lock, dict) else None
-    if isinstance(packages, dict) and f"node_modules/{name}" in packages:
-        return True
-    deps = lock.get("dependencies") if isinstance(lock, dict) else None
-    return isinstance(deps, dict) and name in deps
-
-
-def find_versions_in_lock(lock: dict[str, Any], name: str) -> list[str]:
-    versions = set()
-    packages = lock.get("packages") if isinstance(lock, dict) else None
-    if isinstance(packages, dict):
-        for path, meta in packages.items():
-            if path.endswith(f"node_modules/{name}") and isinstance(meta, dict) and meta.get("version"):
-                versions.add(str(meta["version"]))
-    deps = lock.get("dependencies") if isinstance(lock, dict) else None
-    if isinstance(deps, dict):
-        meta = deps.get(name)
-        if isinstance(meta, dict) and meta.get("version"):
-            versions.add(str(meta["version"]))
-    return sorted(versions)
 
 
 def major_of(version: str) -> int | None:
@@ -225,8 +651,7 @@ def get_node_release(major: int) -> tuple[str, str]:
         raise RuntimeError(f"Unsupported host architecture for Node runtime download: {arch}")
     for item in releases:
         if item.get("version", "").startswith(f"v{major}.") and platform_key in (item.get("files") or []):
-            version = item["version"]
-            return version, platform_key
+            return item["version"], platform_key
     raise RuntimeError(f"No Node {major} Linux binary found in nodejs.org index")
 
 
@@ -236,7 +661,6 @@ def ensure_node(major: int, runtime_root: Path) -> Path:
     node_bin = target / "bin" / "node"
     if node_bin.exists():
         return target
-
     runtime_root.mkdir(parents=True, exist_ok=True)
     archive = runtime_root / f"node-{version}-{platform_key}.tar.xz"
     url = f"https://nodejs.org/dist/{version}/node-{version}-{platform_key}.tar.xz"
@@ -259,12 +683,12 @@ def safe_extract(tar: tarfile.TarFile, path: Path):
 
 
 def sanitized_env(node_dir: Path, workspace: Path) -> dict[str, str]:
+    # Do NOT set NODE_ENV=production: build scripts commonly require devDependencies.
     allowed = {
         "PATH": f"{node_dir / 'bin'}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "HOME": str(workspace / ".home"),
         "TMPDIR": str(workspace / ".tmp"),
         "CI": "1",
-        "NODE_ENV": "production",
         "NPM_CONFIG_CACHE": str(workspace / ".npm-cache"),
         "npm_config_fund": "false",
         "npm_config_audit": "false",
@@ -275,42 +699,85 @@ def sanitized_env(node_dir: Path, workspace: Path) -> dict[str, str]:
     return allowed
 
 
+
+def chown_tree(path: Path, uid: int = BUILD_UID, gid: int = BUILD_GID):
+    if os.geteuid() != 0:
+        return
+    for root, dirs, files in os.walk(path):
+        try:
+            os.chown(root, uid, gid)
+        except OSError:
+            pass
+        for name in dirs:
+            try:
+                os.chown(Path(root) / name, uid, gid)
+            except OSError:
+                pass
+        for name in files:
+            try:
+                os.chown(Path(root) / name, uid, gid)
+            except OSError:
+                pass
+
+
 def classify_failure(output: str) -> list[dict[str, str]]:
     patterns = [
         (r"No module named ['\"]distutils['\"]", "python_distutils_removed", "Python 3.12+ removed distutils; older node-gyp versions commonly fail here."),
-        (r"node-gyp", "node_gyp", "Native addon compilation failed through node-gyp."),
+        (r"node-gyp|gyp ERR", "node_gyp", "Native addon compilation failed through node-gyp."),
         (r"Unsupported engine|EBADENGINE", "engine_mismatch", "A package declares an incompatible Node/npm engine range."),
         (r"ERR_OSSL_EVP_UNSUPPORTED", "openssl_compat", "Likely Node/OpenSSL compatibility issue."),
-        (r"NODE_MODULE_VERSION", "node_abi", "Native addon ABI does not match this Node runtime."),
-        (r"Cannot find module", "missing_module", "Build/runtime could not resolve a required module."),
+        (r"NODE_MODULE_VERSION|Module did not self-register", "node_abi", "Native addon ABI does not match this Node runtime."),
+        (r"prebuild-install.*warn|No prebuilt binaries found", "missing_prebuild", "No compatible prebuilt native binary was available; compilation may be required."),
+        (r"Cannot find module|ERR_MODULE_NOT_FOUND", "missing_module", "Build/runtime could not resolve a required module."),
         (r"ERESOLVE", "dependency_resolution", "npm dependency resolution conflict."),
-        (r"ETIMEDOUT|ECONNRESET|ENETUNREACH", "network", "Network failure during install/build; may not be a compatibility bug."),
+        (r"npm ci.*package-lock|can only install packages when your package.json and package-lock", "lockfile_mismatch", "package.json and lockfile are not in sync for npm ci."),
+        (r"GLIBC_|not found: make|not found: g\+\+|fatal error: .*\.h: No such file", "system_toolchain", "Native build appears to require a missing compiler/system library."),
+        (r"SyntaxError: Unexpected token|Unexpected token ['\"]?\?\?", "runtime_syntax", "Runtime may be too old/new for syntax emitted or consumed by a dependency."),
+        (r"ETIMEDOUT|ECONNRESET|ENETUNREACH|EAI_AGAIN", "network", "Network failure during install/build; may not be a compatibility bug."),
     ]
     hits = []
     for pattern, code, explanation in patterns:
-        if re.search(pattern, output, flags=re.IGNORECASE):
+        if re.search(pattern, output or "", flags=re.IGNORECASE | re.MULTILINE):
             hits.append({"code": code, "explanation": explanation})
     return hits
 
 
-def full_build_matrix(source_repo: Path, node_majors: list[int], work_root: Path, runtime_root: Path) -> list[dict[str, Any]]:
+def full_build_matrix(source_repo: Path, selected_project: str, node_majors: list[int], work_root: Path, runtime_root: Path) -> list[dict[str, Any]]:
     results = []
     for major in node_majors:
         node_dir = ensure_node(major, runtime_root)
         runtime_version = run([str(node_dir / "bin" / "node"), "--version"], timeout=20)["output"].strip()
+        npm_version = run([str(node_dir / "bin" / "npm"), "--version"], env=sanitized_env(node_dir, work_root), timeout=20)["output"].strip()
         workspace = Path(tempfile.mkdtemp(prefix=f"wid-node{major}-", dir=work_root))
         repo_copy = workspace / "repo"
-        shutil.copytree(source_repo, repo_copy, ignore=shutil.ignore_patterns(".git", "node_modules", ".next", "dist", "build"))
+        shutil.copytree(source_repo, repo_copy, ignore=shutil.ignore_patterns(".git", "node_modules", ".next", "dist", "build", "coverage"))
+        project = repo_copy if selected_project == "." else repo_copy / selected_project
         env = sanitized_env(node_dir, workspace)
+        chown_tree(workspace)
 
-        lock = (repo_copy / "package-lock.json").exists()
-        install_cmd = [str(node_dir / "bin" / "npm"), "ci"] if lock else [str(node_dir / "bin" / "npm"), "install"]
-        install = run(install_cmd, cwd=repo_copy, env=env, timeout=INSTALL_TIMEOUT, limits=True)
+        pkg = load_json(project / "package.json")
+        pm = detect_package_manager(project, pkg)
+        if pm["name"] != "npm":
+            results.append({
+                "node_major": major,
+                "node_version": runtime_version,
+                "npm_version": npm_version,
+                "status": "unsupported_package_manager",
+                "package_manager": pm,
+                "install": {"code": 98, "duration_seconds": 0, "output": f"v0.2 full builds currently support npm projects; detected {pm['name']}.", "timed_out": False, "cmd": []},
+                "build": None,
+                "failure_signatures": [],
+            })
+            shutil.rmtree(workspace, ignore_errors=True)
+            continue
+
+        lock = (project / "package-lock.json").exists() or (project / "npm-shrinkwrap.json").exists()
+        install_cmd = [str(node_dir / "bin" / "npm"), "ci", "--include=dev", "--no-audit", "--no-fund"] if lock else [str(node_dir / "bin" / "npm"), "install", "--include=dev", "--no-audit", "--no-fund"]
+        install = run(install_cmd, cwd=project, env=env, timeout=INSTALL_TIMEOUT, limits=True, drop_privileges=True)
         build = None
-        pkg = load_json(repo_copy / "package.json")
         has_build = "build" in (pkg.get("scripts") or {})
         if install["code"] == 0 and has_build:
-            build = run([str(node_dir / "bin" / "npm"), "run", "build"], cwd=repo_copy, env=env, timeout=BUILD_TIMEOUT, limits=True)
+            build = run([str(node_dir / "bin" / "npm"), "run", "build"], cwd=project, env=env, timeout=BUILD_TIMEOUT, limits=True, drop_privileges=True)
 
         status = "pass"
         fail_output = ""
@@ -321,25 +788,31 @@ def full_build_matrix(source_repo: Path, node_majors: list[int], work_root: Path
             status = "fail_build"
             fail_output = build["output"]
 
-        results.append(
-            {
-                "node_major": major,
-                "node_version": runtime_version,
-                "status": status,
-                "install": install,
-                "build": build,
-                "failure_signatures": classify_failure(fail_output),
-            }
-        )
+        results.append({
+            "node_major": major,
+            "node_version": runtime_version,
+            "npm_version": npm_version,
+            "status": status,
+            "package_manager": pm,
+            "install": install,
+            "build": build,
+            "failure_signatures": classify_failure(fail_output),
+        })
         shutil.rmtree(workspace, ignore_errors=True)
     return results
 
 
 def summarize(static: dict[str, Any], matrix: list[dict[str, Any]] | None) -> str:
+    if not static.get("node_project_found"):
+        return "No Node project discovered; repository recorded as not applicable instead of a failed experiment."
     if not matrix:
-        return f"Static risk score {static['risk_score']}/100; {len(static['native_or_risky_dependencies'])} runtime-sensitive package(s) detected."
-    passed = [r["node_major"] for r in matrix if r["status"] == "pass"]
-    failed = [r["node_major"] for r in matrix if r["status"] != "pass"]
+        return f"Static risk {static['risk_score']}/100; {len([x for x in static['native_or_risky_dependencies'] if not x.get('informational')])} runtime-sensitive package(s) detected."
+    considered = [r for r in matrix if r["status"] != "unsupported_package_manager"]
+    passed = [r["node_major"] for r in considered if r["status"] == "pass"]
+    failed = [r["node_major"] for r in considered if r["status"] != "pass"]
+    unsupported = [r["node_major"] for r in matrix if r["status"] == "unsupported_package_manager"]
+    if unsupported and not considered:
+        return "Build matrix skipped: package manager is not supported by v0.2 full-build execution yet."
     if failed and passed:
         return f"Compatibility split detected: passes Node {', '.join(map(str, passed))}; fails Node {', '.join(map(str, failed))}."
     if failed:
@@ -347,18 +820,25 @@ def summarize(static: dict[str, Any], matrix: list[dict[str, Any]] | None) -> st
     return f"Build passed on all tested runtimes: Node {', '.join(map(str, passed))}."
 
 
-def scan_repo(repo_url: str, branch: str | None, mode: str, node_majors: list[int], work_root: Path, runtime_root: Path) -> dict[str, Any]:
+def scan_repo(repo_url: str, branch: str | None, mode: str, node_majors: list[int], work_root: Path, runtime_root: Path, project_path: str | None = None) -> dict[str, Any]:
     slug = repo_slug(repo_url)
     session = Path(tempfile.mkdtemp(prefix="wid-clone-", dir=work_root))
     clone_dir = session / "repo"
     try:
         size_mb = clone_repo(repo_url, branch, clone_dir)
-        static = static_analysis(clone_dir)
-        matrix = full_build_matrix(clone_dir, node_majors, work_root, runtime_root) if mode == "full" else None
+        project, projects, selected = choose_project(clone_dir, project_path)
+        static = static_analysis(clone_dir, project, projects, selected)
+        matrix = None
+        if mode == "full":
+            if project is None or not selected:
+                matrix = []
+            else:
+                matrix = full_build_matrix(clone_dir, selected, node_majors, work_root, runtime_root)
         return {
             "repo": slug,
             "repo_url": repo_url,
             "branch": branch,
+            "project_path": selected,
             "mode": mode,
             "repo_size_mb": size_mb,
             "static": static,
@@ -371,8 +851,9 @@ def scan_repo(repo_url: str, branch: str | None, mode: str, node_majors: list[in
 
 
 def scan_fixture(fixture_dir: Path, node_majors: list[int], work_root: Path, runtime_root: Path) -> dict[str, Any]:
-    static = static_analysis(fixture_dir)
-    matrix = full_build_matrix(fixture_dir, node_majors, work_root, runtime_root)
+    project, projects, selected = choose_project(fixture_dir)
+    static = static_analysis(fixture_dir, project, projects, selected)
+    matrix = full_build_matrix(fixture_dir, selected or ".", node_majors, work_root, runtime_root)
     return {
         "repo": "bundled/hello-node",
         "repo_url": "local fixture",
@@ -384,3 +865,28 @@ def scan_fixture(fixture_dir: Path, node_majors: list[int], work_root: Path, run
         "summary": summarize(static, matrix),
         "generated_at": int(time.time()),
     }
+
+
+def regression_checks(fixtures_root: Path) -> list[dict[str, Any]]:
+    checks = []
+
+    transitive = fixtures_root / "transitive-deasync"
+    project, projects, selected = choose_project(transitive)
+    result = static_analysis(transitive, project, projects, selected)
+    hit = next((x for x in result["native_or_risky_dependencies"] if x["package"] == "deasync"), None)
+    checks.append({
+        "name": "transitive deasync detection",
+        "pass": bool(hit),
+        "detail": "deasync detected from lockfile" if hit else "deasync was missed",
+    })
+
+    volta = fixtures_root / "volta-pin"
+    project, projects, selected = choose_project(volta)
+    result = static_analysis(volta, project, projects, selected)
+    pin = next((x for x in result["runtime_pins"] if x["source"] == "package.json volta.node"), None)
+    checks.append({
+        "name": "Volta Node pin detection",
+        "pass": bool(pin and pin["value"] == "20.15.0"),
+        "detail": f"detected {pin['value']}" if pin else "Volta pin was missed",
+    })
+    return checks

@@ -1,0 +1,7 @@
+{
+  "name": "wid-transitive-fixture",
+  "version": "1.0.0",
+  "dependencies": {
+    "prejss-postcss-parser": "0.3.2"
+  }
+}

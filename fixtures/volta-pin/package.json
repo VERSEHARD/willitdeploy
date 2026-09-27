@@ -1,0 +1,8 @@
+{
+  "name": "wid-volta-fixture",
+  "version": "1.0.0",
+  "volta": {
+    "node": "20.15.0"
+  },
+  "dependencies": {}
+}

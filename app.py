@@ -11,9 +11,9 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-from scanner import scan_repo, scan_fixture
+from scanner import scan_repo, scan_fixture, regression_checks
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -60,6 +60,7 @@ def init_db():
                 updated_at INTEGER NOT NULL,
                 repo_url TEXT NOT NULL,
                 branch TEXT,
+                project_path TEXT,
                 mode TEXT NOT NULL,
                 runtimes TEXT NOT NULL,
                 status TEXT NOT NULL,
@@ -69,10 +70,17 @@ def init_db():
             )
             """
         )
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(scans)").fetchall()}
+        if "project_path" not in cols:
+            conn.execute("ALTER TABLE scans ADD COLUMN project_path TEXT")
         conn.commit()
 
 
 init_db()
+try:
+    os.chmod(DB_PATH, 0o600)
+except OSError:
+    pass
 
 
 def now_ts() -> int:
@@ -100,7 +108,7 @@ def update_scan(scan_id: str, **fields):
         conn.commit()
 
 
-def worker(scan_id: str, repo_url: str, branch: str | None, mode: str, runtimes: list[int]):
+def worker(scan_id: str, repo_url: str, branch: str | None, project_path: str | None, mode: str, runtimes: list[int]):
     try:
         update_scan(scan_id, status="running")
         allow_full = os.getenv("ALLOW_FULL_BUILDS", "0") == "1"
@@ -114,6 +122,7 @@ def worker(scan_id: str, repo_url: str, branch: str | None, mode: str, runtimes:
             node_majors=runtimes,
             work_root=WORK_DIR,
             runtime_root=RUNTIME_DIR,
+            project_path=project_path,
         )
         update_scan(
             scan_id,
@@ -163,12 +172,13 @@ def create_scan():
     repo_url = str(payload.get("repo_url", "")).strip()
     branch = str(payload.get("branch", "")).strip() or None
     mode = str(payload.get("mode", "static")).strip().lower()
+    project_path = str(payload.get("project_path", "")).strip() or None
     runtimes = payload.get("runtimes", [22, 24, 26])
 
     if mode not in {"static", "full"}:
         return jsonify({"error": "mode must be static or full"}), 400
     if not repo_url.startswith("https://github.com/"):
-        return jsonify({"error": "v0.1 only accepts public https://github.com/owner/repo URLs"}), 400
+        return jsonify({"error": "Only public https://github.com/owner/repo URLs are accepted"}), 400
 
     normalized = []
     for value in runtimes:
@@ -187,12 +197,12 @@ def create_scan():
     ts = now_ts()
     with db_conn() as conn:
         conn.execute(
-            "INSERT INTO scans (id, created_at, updated_at, repo_url, branch, mode, runtimes, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (scan_id, ts, ts, repo_url, branch, mode, json.dumps(normalized), "queued"),
+            "INSERT INTO scans (id, created_at, updated_at, repo_url, branch, project_path, mode, runtimes, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (scan_id, ts, ts, repo_url, branch, project_path, mode, json.dumps(normalized), "queued"),
         )
         conn.commit()
 
-    executor.submit(worker, scan_id, repo_url, branch, mode, normalized)
+    executor.submit(worker, scan_id, repo_url, branch, project_path, mode, normalized)
     return jsonify({"id": scan_id, "status": "queued"}), 202
 
 
@@ -211,6 +221,7 @@ def self_test():
             work_root=WORK_DIR,
             runtime_root=RUNTIME_DIR,
         )
+        result["regression_checks"] = regression_checks(BASE_DIR / "fixtures")
         return jsonify(result)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -221,7 +232,7 @@ def list_scans():
     limit = min(100, max(1, int(request.args.get("limit", "30"))))
     with db_conn() as conn:
         rows = conn.execute(
-            "SELECT id, created_at, updated_at, repo_url, branch, mode, runtimes, status, summary, error FROM scans ORDER BY created_at DESC LIMIT ?",
+            "SELECT id, created_at, updated_at, repo_url, branch, project_path, mode, runtimes, status, summary, error FROM scans ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
     return jsonify([dict(row) | {"runtimes": json.loads(row["runtimes"])} for row in rows])

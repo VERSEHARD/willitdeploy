@@ -26,7 +26,7 @@
       <div class="mb-4">
         <div class="eyebrow mb-2">RUNTIME COMPATIBILITY LAB</div>
         <h1 class="display-5 fw-bold tracking-tight">Will your repo survive the next Node runtime?</h1>
-        <p class="lead text-secondary">Clone a public GitHub repository, inspect its dependency risk, then optionally run clean installs/builds across Node 22, 24 and 26.</p>
+        <p class="lead text-secondary">Clone a public GitHub repository, resolve runtime-sensitive dependencies and runtime pins, then optionally run clean installs/builds across Node 22, 24 and 26.</p>
       </div>
 
       <div class="card shadow-sm border-secondary-subtle">
@@ -39,11 +39,15 @@
             </div>
 
             <div class="row g-3 mb-3">
-              <div class="col-md-5">
+              <div class="col-md-4">
                 <label class="form-label">Branch <span class="text-secondary">(optional)</span></label>
                 <input id="branchInput" class="form-control" placeholder="main">
               </div>
-              <div class="col-md-7">
+              <div class="col-md-4">
+                <label class="form-label">Project path <span class="text-secondary">(optional)</span></label>
+                <input id="projectPathInput" class="form-control" placeholder="apps/web">
+              </div>
+              <div class="col-md-4">
                 <label class="form-label d-block">Node matrix</label>
                 <div class="btn-group" role="group" aria-label="Node runtimes">
                   <input type="checkbox" class="btn-check runtime-check" id="node22" value="22" checked>
@@ -90,10 +94,11 @@
 
     <aside class="col-lg-5">
       <div class="card border-secondary-subtle mb-4">
-        <div class="card-header bg-transparent fw-semibold">What v0.1 measures</div>
+        <div class="card-header bg-transparent fw-semibold">What v0.2 measures</div>
         <div class="card-body">
           <div class="metric-row"><span>package.json / lockfile</span><span>✓</span></div>
-          <div class="metric-row"><span>Native addon risk</span><span>✓</span></div>
+          <div class="metric-row"><span>Transitive native-addon risk</span><span>✓</span></div>
+          <div class="metric-row"><span>Volta / nvm / Docker pins</span><span>✓</span></div>
           <div class="metric-row"><span>node-gyp / deasync versions</span><span>✓</span></div>
           <div class="metric-row"><span>Node 22/24/26 install</span><span>{% if full_builds_enabled %}✓{% else %}off{% endif %}</span></div>
           <div class="metric-row"><span>npm build result</span><span>{% if full_builds_enabled %}✓{% else %}off{% endif %}</span></div>
@@ -113,7 +118,7 @@
 </main>
 
 <footer class="container pb-5 pt-2 text-secondary small">
-  Research prototype. A passing build is evidence, not a deployment guarantee. A failing build can also be caused by flaky networks, unavailable external services, or platform-specific system libraries.
+  v0.2 research prototype. A passing build is evidence, not a deployment guarantee. A failing build can also be caused by flaky networks, unavailable external services, or platform-specific system libraries.
 </footer>
 
 <script>

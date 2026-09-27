@@ -1,128 +1,45 @@
-# WillItDeploy? v0.1
+# WillItDeploy? v0.2
 
-A research prototype for empirically testing whether a public Node.js repository still installs/builds across multiple Node runtimes.
+Research prototype for empirically testing Node.js runtime compatibility.
 
-It intentionally starts small:
+## What v0.2 adds
 
-- public GitHub repositories only
-- root-level Node projects only
-- static dependency/runtime-risk triage
-- optional real build matrix on Node 22 / 24 / 26
-- SQLite scan history
-- failure-signature detection for common runtime/toolchain breakage
-- Bootstrap 5 UI + vanilla JavaScript (no AI-generated component framework spaghetti)
-
-## Important security note
-
-**Full build mode executes `npm install` and the repository's `npm run build` scripts. Those scripts are arbitrary code.**
-
-For v0.1:
-
-1. Keep the deployment private / obscure.
-2. Set a strong `SCAN_TOKEN`.
-3. Only scan repositories you trust.
-4. Do not place valuable secrets in this Railway service.
-5. Leave `ALLOW_FULL_BUILDS=0` for a public-facing demo.
-
-This is an experiment runner, not a hardened multi-tenant sandbox yet.
+- Finds Node projects below repo root instead of treating non-root projects as failures.
+- Detects Node pins from `engines.node`, Volta, `.nvmrc`, `.node-version`, `.tool-versions`, Docker `FROM node:...`, and Railpack/Nixpacks config.
+- Parses transitive native/runtime-sensitive packages from npm lockfiles.
+- For npm projects without a lockfile, queries npm package metadata recursively **without executing package scripts** to look for risky transitive dependencies.
+- Full builds install devDependencies correctly (v0.1 incorrectly set `NODE_ENV=production`).
+- Clean Node 22/24/26 install/build matrix with npm/node versions and failure signatures.
+- Regression fixtures for the two bugs discovered during v0.1 testing: transitive `deasync` and Volta Node pins.
+- Optional project path for monorepos.
 
 ## Railway deployment
 
-1. Unzip this project and push it to a GitHub repository.
-2. Create a new Railway project from the repository.
-3. Railway will use the included `Dockerfile`.
-4. Add a Railway volume mounted at `/data` so scan history and downloaded Node runtimes persist.
-5. Add variables:
+Deploy with the included Dockerfile. Mount a Railway volume at `/data`.
 
-```text
-SCAN_TOKEN=<long random string>
-ALLOW_FULL_BUILDS=1
+Recommended variables:
+
+```env
 DATA_DIR=/data
 SCAN_WORKERS=1
+SCAN_TOKEN=choose-a-long-private-token
+ALLOW_FULL_BUILDS=1
+MAX_REPO_MB=250
+INSTALL_TIMEOUT_SECONDS=480
+BUILD_TIMEOUT_SECONDS=480
+STATIC_REGISTRY_MAX_PACKAGES=160
+STATIC_REGISTRY_MAX_DEPTH=4
 ```
 
-6. Generate a public domain in Railway.
-7. Open the app. Enter the same `SCAN_TOKEN` in the UI.
+After changing `ALLOW_FULL_BUILDS`, redeploy the service.
 
-If you only want static analysis, keep:
+## First experiment sequence
 
-```text
-ALLOW_FULL_BUILDS=0
-```
+1. Run **bundled self-test**. All regression checks and Node 22/24/26 fixture builds should pass.
+2. Static scan `axept/prejss`, branch `master`. v0.2 should surface transitive `deasync` even though the repo has no npm lockfile.
+3. Static scan `trailheadapps/visualforce-to-lwc`, branch `main`. v0.2 should detect the Volta Node `20.15.0` pin.
+4. Full-build `axept/prejss` across Node 22/24/26. Record the matrix; do not infer anything from static score alone.
 
-## Why runtime binaries are downloaded at scan time
+## Safety
 
-A single container cannot normally have three different active Node runtimes via one package manager. WillItDeploy downloads the official Linux binary tarball for the latest patch release of each selected Node major from nodejs.org and caches it under `/data/runtimes`.
-
-For each runtime, it copies the repo into a fresh workspace, puts that Node runtime first on `PATH`, and runs:
-
-```text
-npm ci        # when package-lock.json exists
-npm install   # otherwise
-npm run build # only when a build script exists
-```
-
-The matrix therefore measures actual install/build behavior, rather than only reading declared engine metadata.
-
-## First experiment
-
-Start with **Static triage** on a few repositories.
-
-Then enable full builds and run the bundled self-test. The first run is slower because Node 22/24/26 binaries are downloaded. Later runs reuse the cached runtimes.
-
-After that, scan a small controlled dataset — e.g. 20 public Node repos — and look for the interesting class:
-
-```text
-Node 22 ✅
-Node 24 ✅
-Node 26 ❌
-```
-
-That is the seed for the actual dataset: dependencies / dependency combinations that predict future runtime breakage.
-
-## API
-
-### Health
-
-```http
-GET /api/health
-```
-
-### Start scan
-
-```http
-POST /api/scans
-X-Scan-Token: <token>
-Content-Type: application/json
-
-{
-  "repo_url": "https://github.com/owner/repo",
-  "branch": null,
-  "mode": "full",
-  "runtimes": [22, 24, 26]
-}
-```
-
-### Fetch scan
-
-```http
-GET /api/scans/<id>
-```
-
-### History
-
-```http
-GET /api/scans
-```
-
-## Known v0.1 limitations
-
-- no monorepo workspace selection yet
-- no pnpm/yarn/bun build execution yet
-- no Python runtime matrix yet
-- no hardened container-per-scan sandbox yet
-- system library differences can cause failures unrelated to Node itself
-- build scripts that require secrets/external services can fail
-- npm/network flakiness can create false failures
-
-These are deliberate. We want to test whether the underlying dataset is interesting before building infrastructure around it.
+Full-build mode executes the target repository's npm install/build scripts. It is a research prototype, not a hardened sandbox. Keep the instance private and only full-build repositories you deliberately trust. Static mode does not execute package lifecycle scripts.
