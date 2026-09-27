@@ -3,121 +3,316 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PricePulse — Website & Price Monitoring</title>
-  <meta name="description" content="Monitor public product and listing pages for price, stock, keyword and content changes.">
+  <title>PricePulse — Web Monitoring Intelligence</title>
+  <meta name="description" content="Monitor prices, restocks and competitor pages continuously. Get a clean signal when something important changes.">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/css/tabler.min.css">
-  <style>
-    body { min-height: 100vh; }
-    .brand-dot { width:10px;height:10px;border-radius:50%;background:#2fb344;display:inline-block;box-shadow:0 0 0 4px rgba(47,179,68,.12); }
-    .metric { font-size:2rem;font-weight:700;line-height:1; }
-    .url-cell { max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    code { font-size:.82em; }
-  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.34.1/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="/pricepulse/static/app.css?v={{ version }}">
 </head>
 <body>
-<div class="page">
-  <header class="navbar navbar-expand-md border-bottom">
-    <div class="container-xl">
-      <div class="navbar-brand d-flex align-items-center gap-2">
-        <span class="brand-dot"></span><span>PricePulse</span>
-      </div>
-      <div class="navbar-nav flex-row order-md-last">
-        <span id="health" class="text-secondary small">Checking…</span>
-        <span class="badge bg-secondary-lt ms-2">v{{ version }}</span>
-      </div>
-    </div>
-  </header>
+<div class="pp-shell">
+  <aside class="pp-sidebar">
+    <a class="pp-brand" href="/pricepulse/">
+      <span class="pp-logo"><i class="ti ti-wave-sine"></i></span>
+      <span>
+        <strong>PricePulse</strong>
+        <small>monitoring intelligence</small>
+      </span>
+    </a>
 
-  <div class="page-wrapper">
-    <div class="page-header">
-      <div class="container-xl">
-        <div class="row align-items-end g-3">
-          <div class="col">
-            <div class="page-pretitle">Hosted monitoring engine</div>
-            <h1 class="page-title">Watch a public page. Get the signal, not the noise.</h1>
-            <p class="text-secondary mt-2 mb-0">
-              Track price thresholds, stock keywords, CSS-selected content and page changes on a schedule.
-            </p>
+    <nav class="pp-nav" aria-label="Primary">
+      <button class="pp-nav-item active" data-view="overview"><i class="ti ti-layout-dashboard"></i><span>Overview</span></button>
+      <button class="pp-nav-item" data-view="monitors"><i class="ti ti-radar-2"></i><span>Monitors</span><span id="navMonitorCount" class="pp-nav-count">0</span></button>
+      <button class="pp-nav-item" data-view="activity"><i class="ti ti-bolt"></i><span>Activity</span></button>
+      <button class="pp-nav-item" data-view="briefing"><i class="ti ti-report-analytics"></i><span>Briefing</span></button>
+      <button class="pp-nav-item" data-view="lab"><i class="ti ti-flask-2"></i><span>Reliability lab</span></button>
+    </nav>
+
+    <div class="pp-sidebar-bottom">
+      <div class="pp-plan">
+        <span class="badge bg-blue-lt text-blue">EARLY ACCESS</span>
+        <strong>Managed monitoring pilot</strong>
+        <span>Up to 5 public URLs · 7 days</span>
+        <a href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=pricepulse.yml" class="btn btn-sm btn-primary w-100">Start for $5</a>
+      </div>
+      <div class="pp-version">PricePulse v{{ version }}</div>
+    </div>
+  </aside>
+
+  <main class="pp-main">
+    <header class="pp-topbar">
+      <div>
+        <div class="pp-eyebrow">WORKSPACE</div>
+        <h1 id="viewTitle">Overview</h1>
+      </div>
+      <div class="pp-top-actions">
+        <div class="pp-health">
+          <span id="healthDot" class="pp-health-dot"></span>
+          <span id="health">Checking engine…</span>
+        </div>
+        <button class="btn btn-ghost-secondary btn-icon" id="refreshBtn" title="Refresh">
+          <i class="ti ti-refresh"></i>
+        </button>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newMonitor">
+          <i class="ti ti-plus me-1"></i> New monitor
+        </button>
+      </div>
+    </header>
+
+    <section class="pp-content">
+      <div class="pp-view active" id="view-overview">
+        <div class="pp-hero">
+          <div>
+            <span class="pp-kicker"><span class="pp-live-dot"></span> Continuous monitoring</span>
+            <h2>Know when the web changes<br>before it costs you.</h2>
+            <p>Track a product, competitor, listing or pricing page. PricePulse checks it on schedule, stores evidence, filters noise and surfaces the signal.</p>
           </div>
-          <div class="col-auto d-flex gap-2">
-            <a class="btn btn-outline-secondary" href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=pricepulse.yml">7-day managed pilot · $5</a>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newMonitor">New monitor</button>
+          <div class="pp-hero-actions">
+            <button class="btn btn-light" data-bs-toggle="modal" data-bs-target="#newMonitor"><i class="ti ti-radar me-1"></i> Monitor a page</button>
+            <a class="btn btn-outline-light" href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=pricepulse.yml">Managed setup</a>
           </div>
         </div>
-      </div>
-    </div>
 
-    <div class="page-body">
-      <div class="container-xl">
-        <div class="row row-cards mb-4">
-          <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Monitors</div><div id="metricMonitors" class="metric">0</div></div></div></div>
-          <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Active</div><div id="metricActive" class="metric">0</div></div></div></div>
-          <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Changes</div><div id="metricChanges" class="metric">0</div></div></div></div>
-          <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="subheader">Errors</div><div id="metricErrors" class="metric">0</div></div></div></div>
+        <div class="pp-metrics">
+          <article class="pp-metric-card">
+            <div class="pp-metric-icon"><i class="ti ti-radar"></i></div>
+            <div><span>Active monitors</span><strong id="metricActive">0</strong><small id="metricMonitorsSub">0 total</small></div>
+          </article>
+          <article class="pp-metric-card">
+            <div class="pp-metric-icon"><i class="ti ti-shield-check"></i></div>
+            <div><span>Check success</span><strong id="metricSuccess">—</strong><small id="metricChecksSub">0 checks</small></div>
+          </article>
+          <article class="pp-metric-card">
+            <div class="pp-metric-icon"><i class="ti ti-bolt"></i></div>
+            <div><span>Signals · 24h</span><strong id="metricSignals">0</strong><small>actionable changes</small></div>
+          </article>
+          <article class="pp-metric-card">
+            <div class="pp-metric-icon"><i class="ti ti-clock-bolt"></i></div>
+            <div><span>Average fetch</span><strong id="metricLatency">—</strong><small>network + parse</small></div>
+          </article>
         </div>
 
-        <div class="row row-cards">
-          <div class="col-12">
-            <div class="card">
-              <div class="card-header"><h3 class="card-title">Monitors</h3></div>
+        <div class="row g-4">
+          <div class="col-12 col-xl-8">
+            <div class="pp-panel">
+              <div class="pp-panel-head">
+                <div><span class="pp-panel-kicker">WATCHLIST</span><h3>Live monitors</h3></div>
+                <button class="btn btn-sm btn-ghost-secondary" data-view-jump="monitors">View all <i class="ti ti-arrow-right ms-1"></i></button>
+              </div>
               <div class="table-responsive">
-                <table class="table table-vcenter card-table">
-                  <thead><tr><th>Name</th><th>URL</th><th>Rule</th><th>Last check</th><th>Status</th><th class="w-1"></th></tr></thead>
-                  <tbody id="monitorRows"><tr><td colspan="6" class="text-secondary">Loading…</td></tr></tbody>
+                <table class="table table-vcenter pp-table mb-0">
+                  <thead><tr><th>Monitor</th><th>Signal</th><th>Last check</th><th>Health</th></tr></thead>
+                  <tbody id="overviewMonitorRows"><tr><td colspan="4" class="text-secondary">Loading monitors…</td></tr></tbody>
                 </table>
               </div>
             </div>
           </div>
 
-          <div class="col-12">
-            <div class="card">
-              <div class="card-header"><h3 class="card-title">Recent signals</h3></div>
-              <div id="eventRows" class="list-group list-group-flush">
-                <div class="list-group-item text-secondary">No events yet.</div>
+          <div class="col-12 col-xl-4">
+            <div class="pp-panel h-100">
+              <div class="pp-panel-head">
+                <div><span class="pp-panel-kicker">LATEST</span><h3>Signal feed</h3></div>
+                <button class="btn btn-sm btn-ghost-secondary" data-view-jump="activity">Activity</button>
+              </div>
+              <div id="overviewEvents" class="pp-feed">
+                <div class="pp-empty">No signals yet.</div>
               </div>
             </div>
           </div>
 
           <div class="col-12">
-            <div class="alert alert-info">
-              <strong>Current product scope:</strong> public HTML pages only. JavaScript-only marketplaces and authenticated pages need a browser worker, which is the next adapter.
+            <div class="pp-proof-strip">
+              <div class="pp-proof-copy">
+                <span class="pp-panel-kicker">LIVE PROOF</span>
+                <h3>Real checks, not a mock dashboard.</h3>
+                <p id="proofText">Loading the most recent external fetch result…</p>
+              </div>
+              <div class="pp-proof-stat"><span>Reliability lab</span><strong id="proofPassRate">—</strong><small id="proofRunTime">waiting for first run</small></div>
+              <button class="btn btn-outline-secondary" data-view-jump="lab">Open lab</button>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
+
+      <div class="pp-view" id="view-monitors">
+        <div class="pp-section-head">
+          <div><span class="pp-panel-kicker">WATCHLIST</span><h2>Monitors</h2><p>Every URL, rule, schedule and health signal in one place.</p></div>
+          <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newMonitor"><i class="ti ti-plus me-1"></i>New monitor</button>
+        </div>
+        <div class="pp-panel">
+          <div class="pp-toolbar">
+            <div class="input-icon">
+              <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+              <input id="monitorSearch" class="form-control" placeholder="Search monitors or URLs">
+            </div>
+            <select id="healthFilter" class="form-select">
+              <option value="all">All health</option>
+              <option value="healthy">Healthy</option>
+              <option value="error">Error</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-vcenter pp-table mb-0">
+              <thead><tr><th>Name</th><th>Rule</th><th>Last value</th><th>Schedule</th><th>Health</th><th></th></tr></thead>
+              <tbody id="monitorRows"><tr><td colspan="6" class="text-secondary">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="pp-view" id="view-activity">
+        <div class="pp-section-head">
+          <div><span class="pp-panel-kicker">EVENT STREAM</span><h2>Activity</h2><p>Every baseline, threshold, change and error is kept as evidence.</p></div>
+        </div>
+        <div class="pp-panel">
+          <div id="activityRows" class="pp-activity-list"><div class="pp-empty">No activity yet.</div></div>
+        </div>
+      </div>
+
+      <div class="pp-view" id="view-briefing">
+        <div class="pp-section-head">
+          <div><span class="pp-panel-kicker">7-DAY INTELLIGENCE</span><h2>Briefing</h2><p>One digest of what changed across the watchlist, so alerts do not become another inbox.</p></div>
+        </div>
+        <div class="pp-brief-grid">
+          <div class="pp-panel pp-brief-hero">
+            <div><span class="pp-panel-kicker">THIS WEEK</span><h3 id="briefHeadline">No signals recorded yet.</h3><p id="briefSub">PricePulse will summarize meaningful activity here.</p></div>
+            <div class="pp-brief-number"><strong id="briefTotal">0</strong><span>signals</span></div>
+          </div>
+          <div class="pp-panel">
+            <div class="pp-panel-head"><div><span class="pp-panel-kicker">BREAKDOWN</span><h3>Signal types</h3></div></div>
+            <div id="briefBreakdown" class="pp-breakdown"></div>
+          </div>
+          <div class="pp-panel">
+            <div class="pp-panel-head"><div><span class="pp-panel-kicker">HOTTEST</span><h3>Most active monitors</h3></div></div>
+            <div id="briefTop" class="pp-breakdown"></div>
+          </div>
+          <div class="pp-panel pp-span-2">
+            <div class="pp-panel-head"><div><span class="pp-panel-kicker">RECENT</span><h3>Briefing timeline</h3></div></div>
+            <div id="briefItems" class="pp-activity-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pp-view" id="view-lab">
+        <div class="pp-section-head">
+          <div><span class="pp-panel-kicker">REAL-WORLD QA</span><h2>Reliability lab</h2><p>The engine continuously checks different public-site patterns so we can measure reliability instead of claiming it.</p></div>
+          <span class="badge bg-blue-lt text-blue">runs automatically</span>
+        </div>
+
+        <div class="pp-lab-summary">
+          <div><span>Current pass rate</span><strong id="labPassRate">—</strong></div>
+          <div><span>Targets</span><strong id="labTargets">0</strong></div>
+          <div><span>Last run</span><strong id="labLastRun">—</strong></div>
+        </div>
+
+        <div id="labCards" class="row g-4"></div>
+
+        <div class="pp-panel mt-4">
+          <div class="pp-panel-head">
+            <div><span class="pp-panel-kicker">PRODUCT THESIS</span><h3>What we are testing for</h3></div>
+          </div>
+          <div class="pp-thesis-grid">
+            <div><i class="ti ti-clock-24"></i><strong>Continuous execution</strong><span>The value is checking while the customer is offline, not explaining an error after it happens.</span></div>
+            <div><i class="ti ti-filter-check"></i><strong>Signal over noise</strong><span>Rules and scoped content should suppress meaningless page churn.</span></div>
+            <div><i class="ti ti-history"></i><strong>Evidence history</strong><span>Every check keeps a dated snapshot so the user can prove what changed and when.</span></div>
+            <div><i class="ti ti-plug-connected"></i><strong>Actionable delivery</strong><span>Webhooks make the result usable in Slack, Discord, automations and internal workflows.</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
 </div>
 
 <div class="modal modal-blur fade" id="newMonitor" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-centered">
-    <div class="modal-content">
+    <div class="modal-content pp-modal">
       <form id="monitorForm">
         <div class="modal-header">
-          <h5 class="modal-title">Create monitor</h5>
+          <div><div class="pp-panel-kicker">NEW MONITOR</div><h3 class="modal-title">Tell PricePulse what matters.</h3></div>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <div class="row g-3">
-            <div class="col-md-6"><label class="form-label">Name</label><input id="name" class="form-control" placeholder="Sony A7 IV under $1,500" required></div>
-            <div class="col-md-6"><label class="form-label">Check every (minutes)</label><input id="interval" type="number" min="1" max="1440" value="{{ default_interval }}" class="form-control"></div>
-            <div class="col-12"><label class="form-label">Public page URL</label><input id="url" type="url" class="form-control" placeholder="https://example.com/product" required></div>
-            <div class="col-md-6"><label class="form-label">CSS selector <span class="text-secondary">(optional)</span></label><input id="selector" class="form-control" placeholder=".product-price"></div>
-            <div class="col-md-6"><label class="form-label">Must contain <span class="text-secondary">(optional)</span></label><input id="mustContain" class="form-control" placeholder="In stock"></div>
-            <div class="col-md-6"><label class="form-label">Price regex <span class="text-secondary">(capture price)</span></label><input id="priceRegex" class="form-control" placeholder="\$([0-9,.]+)"></div>
-            <div class="col-md-6"><label class="form-label">Alert when price ≤</label><input id="maxPrice" type="number" step="0.01" class="form-control" placeholder="1500"></div>
-            <div class="col-12"><label class="form-label">Webhook URL <span class="text-secondary">(optional)</span></label><input id="webhook" type="url" class="form-control" placeholder="https://your-app.example/webhook"></div>
-            {% if token_required %}
-            <div class="col-12"><label class="form-label">Admin token</label><input id="token" type="password" class="form-control" placeholder="MONITOR_TOKEN"></div>
-            {% endif %}
+          <div class="pp-step">
+            <div class="pp-step-number">1</div>
+            <div class="pp-step-body">
+              <h4>Page</h4>
+              <div class="row g-3">
+                <div class="col-12">
+                  <label class="form-label">Public URL</label>
+                  <div class="input-group">
+                    <input id="url" type="url" class="form-control" placeholder="https://store.example.com/product" required>
+                    <button id="probeBtn" type="button" class="btn btn-outline-secondary">Test page</button>
+                  </div>
+                </div>
+                <div class="col-md-8"><label class="form-label">Name</label><input id="name" class="form-control" placeholder="Competitor Pro plan"></div>
+                <div class="col-md-4"><label class="form-label">Type</label>
+                  <select id="kind" class="form-select">
+                    <option value="price">Price</option>
+                    <option value="stock">Stock / restock</option>
+                    <option value="keyword">Keyword</option>
+                    <option value="content">Content change</option>
+                  </select>
+                </div>
+              </div>
+              <div id="probeResult" class="pp-probe d-none"></div>
+            </div>
           </div>
-          <div id="formError" class="alert alert-danger mt-3 d-none"></div>
+
+          <div class="pp-step">
+            <div class="pp-step-number">2</div>
+            <div class="pp-step-body">
+              <h4>Signal rule</h4>
+              <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">CSS selector <span>optional</span></label><input id="selector" class="form-control" placeholder=".product-price"></div>
+                <div class="col-md-6"><label class="form-label">Text that must appear <span>optional</span></label><input id="mustContain" class="form-control" placeholder="In stock"></div>
+                <div class="col-md-6"><label class="form-label">Price regex <span>optional · auto-detects common currencies</span></label><input id="priceRegex" class="form-control" placeholder="\$([0-9,.]+)"></div>
+                <div class="col-md-3"><label class="form-label">Target price ≤</label><input id="maxPrice" type="number" step="0.01" class="form-control" placeholder="150"></div>
+                <div class="col-md-3"><label class="form-label">Currency</label>
+                  <select id="currency" class="form-select"><option value="">Auto</option><option>USD</option><option>GBP</option><option>EUR</option><option>INR</option></select>
+                </div>
+                <div class="col-12"><label class="form-label">Ignore dynamic text <span>optional regex</span></label><input id="ignoreRegex" class="form-control" placeholder="Updated \d+ minutes ago"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pp-step mb-0">
+            <div class="pp-step-number">3</div>
+            <div class="pp-step-body">
+              <h4>Schedule & delivery</h4>
+              <div class="row g-3">
+                <div class="col-md-4"><label class="form-label">Check every</label>
+                  <select id="interval" class="form-select">
+                    <option value="1">1 minute</option><option value="5" selected>5 minutes</option><option value="15">15 minutes</option>
+                    <option value="60">1 hour</option><option value="360">6 hours</option><option value="1440">Daily</option>
+                  </select>
+                </div>
+                <div class="col-md-8"><label class="form-label">Webhook <span>optional</span></label><input id="webhook" type="url" class="form-control" placeholder="https://hooks.slack.com/... or your automation endpoint"></div>
+                {% if token_required %}
+                <div class="col-12"><label class="form-label">Workspace admin key</label><input id="token" type="password" class="form-control" placeholder="Required to change monitors"></div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          <div id="formError" class="alert alert-danger mt-4 d-none"></div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-link" data-bs-dismiss="modal">Cancel</button>
-          <button class="btn btn-primary" type="submit">Create & start</button>
+          <button class="btn btn-primary" type="submit"><i class="ti ti-radar me-1"></i>Create monitor</button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal modal-blur fade" id="monitorDetail" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content pp-modal">
+      <div class="modal-header">
+        <div><div class="pp-panel-kicker">MONITOR DETAIL</div><h3 class="modal-title" id="detailTitle">Monitor</h3></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="detailBody"><div class="pp-empty">Loading history…</div></div>
     </div>
   </div>
 </div>
