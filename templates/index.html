@@ -198,6 +198,10 @@
                       <div class="h2 mb-0" id="researchConfirmed">0</div>
                     </div>
                     <div class="col-6 col-lg-3">
+                      <div class="subheader">Verified repairs</div>
+                      <div class="h2 mb-0" id="researchRepairs">0</div>
+                    </div>
+                    <div class="col-6 col-lg-3">
                       <div class="subheader">Money earned</div>
                       <div class="h2 mb-0" id="researchMoney">$0</div>
                     </div>
@@ -236,6 +240,23 @@
                   <table class="table table-vcenter card-table">
                     <thead><tr><th>Repository</th><th>Case</th><th>Result</th><th>npm 10</th><th>npm 11</th></tr></thead>
                     <tbody id="researchResults"><tr><td colspan="5" class="text-secondary">No results yet.</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0">$1 product validation</h3>
+                    <div class="text-secondary small">A sellable result requires an actual verified patch, not just a red build.</div>
+                  </div>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-vcenter card-table">
+                    <thead><tr><th>Repository</th><th>Repair</th><th>Changed files</th><th>Patch size</th><th>After verify</th></tr></thead>
+                    <tbody id="repairResults"><tr><td colspan="5" class="text-secondary">Repair validation has not started.</td></tr></tbody>
                   </table>
                 </div>
               </div>
