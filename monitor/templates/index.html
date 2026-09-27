@@ -45,13 +45,13 @@
   <main class="pp-main">
     <header class="pp-topbar">
       <div>
-        <div class="pp-eyebrow">WORKSPACE</div>
+        <div class="pp-eyebrow">PRICEPULSE / WORKSPACE</div>
         <h1 id="viewTitle">Overview</h1>
       </div>
       <div class="pp-top-actions">
         <div class="pp-health">
           <span id="healthDot" class="pp-health-dot"></span>
-          <span id="health">Checking engine…</span>
+          <span id="health" aria-live="polite">Checking engine…</span>
         </div>
         <button class="btn btn-ghost-secondary btn-icon" id="refreshBtn" title="Refresh">
           <i class="ti ti-refresh"></i>
@@ -276,7 +276,7 @@
                   </select>
                 </div>
               </div>
-              <div id="probeResult" class="pp-probe d-none"></div>
+              <div id="probeResult" class="pp-probe d-none" aria-live="polite"></div>
             </div>
           </div>
 
