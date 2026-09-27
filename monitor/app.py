@@ -578,6 +578,11 @@ def run_monitor(monitor_id):
                 price = extract_price(content, None)
         currency = m.get("currency") or structured.get("currency") or detect_currency(content)
         availability = structured.get("availability")
+        host = (urlparse(final_url).hostname or "").lower()
+        if "vinted." in host and "/items/" in final_url:
+            availability = "Sold" if re.search(r"\bSold\b", content, flags=re.I) else "Active"
+
+        listing_feed = extract_marketplace_listings(html, final_url) if m.get("kind") == "listing_feed" else []
         keyword_ok = True if not m["must_contain"] else m["must_contain"].lower() in content.lower()
         threshold_ok = True if m["max_price"] is None else (price is not None and price <= float(m["max_price"]))
 
@@ -620,8 +625,43 @@ def run_monitor(monitor_id):
         stock_became_available = m.get("kind") == "stock" and stock_now is True and stock_before is False
         stock_became_unavailable = m.get("kind") == "stock" and stock_now is False and stock_before is True
 
+        new_listing_items = []
+        if m.get("kind") == "listing_feed" and listing_feed:
+            with db() as conn:
+                existing_rows = conn.execute(
+                    "SELECT item_key FROM listing_items WHERE monitor_id=?",
+                    (monitor_id,),
+                ).fetchall()
+                existing_keys = {row["item_key"] for row in existing_rows}
+                had_baseline = bool(existing_keys)
+
+                for item in listing_feed:
+                    conn.execute(
+                        """INSERT INTO listing_items(
+                            monitor_id,item_key,url,title,price,currency,first_seen,last_seen,status,meta
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?)
+                        ON CONFLICT(monitor_id,item_key) DO UPDATE SET
+                            url=excluded.url,title=excluded.title,price=excluded.price,
+                            currency=excluded.currency,last_seen=excluded.last_seen,status='active',meta=excluded.meta""",
+                        (
+                            monitor_id,item["item_key"],item["url"],item["title"],item["price"],item["currency"],
+                            checked,checked,"active",json.dumps({"context": item.get("context")})
+                        ),
+                    )
+
+                if had_baseline:
+                    for item in listing_feed:
+                        if item["item_key"] in existing_keys:
+                            continue
+                        title_ok = True if not m["must_contain"] else m["must_contain"].lower() in (item["title"] or "").lower()
+                        price_ok = True if m["max_price"] is None else (item["price"] is not None and item["price"] <= float(m["max_price"]))
+                        if title_ok and price_ok:
+                            new_listing_items.append(item)
+
         event_types = []
-        if changed:
+        if new_listing_items:
+            event_types.append("new_listing")
+        if changed and m.get("kind") != "listing_feed":
             event_types.append("content_changed")
         if price_changed:
             event_types.append("price_changed")
@@ -651,6 +691,7 @@ def run_monitor(monitor_id):
             "availability": availability,
             "structured_source": structured.get("source"),
             "url": final_url,
+            "new_listings": new_listing_items[:10],
         }
 
         with db() as conn:
@@ -723,6 +764,7 @@ def run_monitor(monitor_id):
                     "keyword_lost": f"Keyword disappeared: {m['must_contain']}",
                     "stock_available": "Product became available.",
                     "stock_unavailable": "Product became unavailable.",
+                    "new_listing": f"{len(new_listing_items)} new matching listing{'s' if len(new_listing_items) != 1 else ''}.",
                 }[event_type]
                 emit_event(conn, monitor_id, event_type, summary, json.dumps(detail_payload))
 
@@ -760,6 +802,9 @@ def run_monitor(monitor_id):
             "threshold_ok": threshold_ok,
             "latency_ms": latency_ms,
             "diff": diff_lines,
+            "listing_count": len(listing_feed),
+            "new_listing_count": len(new_listing_items),
+            "new_listings": new_listing_items[:10],
         }
         print("[PricePulse] check", json.dumps({"id": monitor_id, **result}, sort_keys=True), flush=True)
         return result
@@ -1591,6 +1636,33 @@ def probe_page():
         })
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc), "monitorability": "failed"}), 400
+
+
+@app.get("/api/monitors/<int:monitor_id>/listings")
+def monitor_listings(monitor_id):
+    limit = max(1, min(100, int(request.args.get("limit", "50"))))
+    with db() as conn:
+        monitor = conn.execute("SELECT id FROM monitors WHERE id=?", (monitor_id,)).fetchone()
+        if not monitor:
+            return jsonify({"error": "Monitor not found."}), 404
+        rows = conn.execute(
+            """SELECT item_key,url,title,price,currency,first_seen,last_seen,status,meta
+               FROM listing_items WHERE monitor_id=?
+               ORDER BY first_seen DESC LIMIT ?""",
+            (monitor_id, limit),
+        ).fetchall()
+
+    items = []
+    for row in rows:
+        d = dict(row)
+        d["first_seen_iso"] = iso(d["first_seen"])
+        d["last_seen_iso"] = iso(d["last_seen"])
+        try:
+            d["meta_json"] = json.loads(d.get("meta") or "{}")
+        except json.JSONDecodeError:
+            d["meta_json"] = {}
+        items.append(d)
+    return jsonify(items)
 
 
 @app.get("/api/report")
