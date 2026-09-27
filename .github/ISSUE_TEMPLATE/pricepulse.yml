@@ -1,0 +1,65 @@
+name: "PricePulse managed monitoring pilot"
+description: "Have us monitor public product/listing pages for 7 days."
+title: "[PricePulse Pilot] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 7-day managed pilot — $5 after successful setup
+
+        Send up to **5 public product/listing URLs** and the signal you care about.
+        We configure the monitors first. **No charge if we cannot monitor the pages reliably.**
+  - type: input
+    id: contact
+    attributes:
+      label: Contact
+      description: GitHub username is enough; add another contact method only if you want.
+      placeholder: "@username"
+    validations:
+      required: true
+  - type: textarea
+    id: urls
+    attributes:
+      label: URLs to monitor
+      description: Up to 5 public URLs, one per line.
+      placeholder: |
+        https://store.example.com/product-a
+        https://market.example.com/listing/123
+    validations:
+      required: true
+  - type: dropdown
+    id: signal
+    attributes:
+      label: What should trigger an alert?
+      multiple: true
+      options:
+        - Price falls below a target
+        - Product/listing becomes available
+        - Specific text appears
+        - Page/listing changes
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: rules
+    attributes:
+      label: Exact rules
+      placeholder: |
+        Alert when Product A is <= $150.
+        Alert when "In stock" appears.
+    validations:
+      required: true
+  - type: input
+    id: webhook
+    attributes:
+      label: Webhook URL (optional)
+      description: If you have Slack/Discord/automation webhook, paste it here. Otherwise leave blank.
+      placeholder: https://...
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pilot terms
+      options:
+        - label: I understand the $5 launch price is due only after the monitors are successfully configured and demonstrated.
+          required: true
