@@ -220,7 +220,7 @@ def fetch_page(url):
         chunks.append(chunk)
     body = b"".join(chunks)
     content_type = (r.headers.get("content-type") or "").lower()
-    if "html" not in content_type and "text" not in content_type:
+    if not any(kind in content_type for kind in ("html", "text", "json", "xml", "rss", "atom")):
         raise ValueError(f"Unsupported content type: {content_type or 'unknown'}")
     text = body.decode(r.encoding or "utf-8", errors="replace")
     return r.status_code, r.url, text
@@ -317,9 +317,28 @@ def send_webhook(url, payload):
         return None
     try:
         validate_public_url(url)
+        host = (urlparse(url).hostname or "").lower()
+        events = ", ".join(payload.get("events") or [])
+        price = payload.get("price")
+        currency = payload.get("currency") or ""
+        value = f"{currency} {price}".strip() if price is not None else "n/a"
+        message = (
+            f"PricePulse · {payload.get('name')}\n"
+            f"Signal: {events or 'change'}\n"
+            f"Value: {value}\n"
+            f"{payload.get('url')}"
+        )
+
+        if "discord.com" in host or "discordapp.com" in host:
+            body = {"content": message[:1900]}
+        elif "hooks.slack.com" in host:
+            body = {"text": message[:3500]}
+        else:
+            body = payload
+
         r = requests.post(
             url,
-            json=payload,
+            json=body,
             headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
             timeout=(5, 10),
             allow_redirects=False,
@@ -363,14 +382,29 @@ def run_monitor(monitor_id):
             and m["last_excerpt"] is not None
             and m["must_contain"].lower() not in (m["last_excerpt"] or "").lower()
         )
+        keyword_became_false = (
+            bool(m["must_contain"])
+            and not keyword_ok
+            and m["last_excerpt"] is not None
+            and m["must_contain"].lower() in (m["last_excerpt"] or "").lower()
+        )
+        price_changed = (
+            price is not None
+            and m["last_price"] is not None
+            and abs(float(price) - float(m["last_price"])) > 0.000001
+        )
 
         event_types = []
         if changed:
             event_types.append("content_changed")
+        if price_changed:
+            event_types.append("price_changed")
         if threshold_crossed:
             event_types.append("price_threshold")
         if keyword_became_true:
             event_types.append("keyword_match")
+        if keyword_became_false:
+            event_types.append("keyword_lost")
 
         next_check = checked + int(m["interval_min"]) * 60
         checks_count = int(m.get("checks_count") or 0) + 1
@@ -442,10 +476,18 @@ def run_monitor(monitor_id):
             if not m["last_hash"]:
                 emit_event(conn, monitor_id, "baseline", "Baseline captured.", json.dumps(detail_payload))
             for event_type in event_types:
+                old_price = float(m["last_price"]) if m["last_price"] is not None else None
+                delta_pct = ((float(price) - old_price) / old_price * 100) if price_changed and old_price else None
                 summary = {
                     "content_changed": "Tracked content changed.",
+                    "price_changed": (
+                        f"Price changed from {currency + ' ' if currency else ''}{old_price:g} "
+                        f"to {currency + ' ' if currency else ''}{float(price):g}"
+                        + (f" ({delta_pct:+.1f}%)" if delta_pct is not None else "")
+                    ),
                     "price_threshold": f"Price reached target: {currency + ' ' if currency else ''}{price}",
                     "keyword_match": f"Keyword appeared: {m['must_contain']}",
+                    "keyword_lost": f"Keyword disappeared: {m['must_contain']}",
                 }[event_type]
                 emit_event(conn, monitor_id, event_type, summary, json.dumps(detail_payload))
 
@@ -544,10 +586,19 @@ def run_reliability_lab():
             signal = None
             error = str(exc)
 
+        print("[PricePulse] lab", json.dumps({
+            "target": target["target"],
+            "ok": ok,
+            "http_status": status,
+            "latency_ms": latency_ms,
+            "signal": signal,
+            "error": error,
+        }, sort_keys=True), flush=True)
+
         with db() as conn:
             conn.execute(
                 """INSERT INTO lab_runs(target,url,created_at,ok,http_status,latency_ms,content_bytes,signal,error)
-                   VALUES(?,?,?,?,?,?,?,?,?)""",
+                   VALUES(?,?,?,?,?,?,?,?,?)""
                 (
                     target["target"],
                     target["url"],
@@ -928,6 +979,85 @@ def run_now(monitor_id):
     if denied:
         return denied
     return jsonify(run_monitor(monitor_id))
+
+
+@app.patch("/api/monitors/<int:monitor_id>")
+def update_monitor(monitor_id):
+    denied = require_admin()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    allowed = {
+        "name", "selector", "must_contain", "price_regex", "max_price",
+        "interval_min", "webhook_url", "kind", "ignore_regex", "currency"
+    }
+    updates = {}
+    try:
+        for key in allowed:
+            if key not in payload:
+                continue
+            value = payload[key]
+            if key in {"name", "selector", "must_contain", "price_regex", "webhook_url", "kind", "ignore_regex", "currency"}:
+                value = str(value or "").strip() or None
+            if key == "name" and not value:
+                raise ValueError("Name cannot be empty.")
+            if key == "kind":
+                if value not in {"content", "price", "stock", "keyword"}:
+                    raise ValueError("Invalid monitor type.")
+            if key == "interval_min":
+                value = max(1, min(1440, int(value)))
+            if key == "max_price":
+                value = float(value) if value not in (None, "") else None
+            if key == "webhook_url" and value:
+                validate_public_url(value)
+            if key in {"price_regex", "ignore_regex"} and value:
+                re.compile(value)
+            if key == "currency" and value:
+                value = value.upper()
+            updates[key] = value
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if not updates:
+        return jsonify({"error": "No editable fields supplied."}), 400
+
+    with db() as conn:
+        exists = conn.execute("SELECT id FROM monitors WHERE id=?", (monitor_id,)).fetchone()
+        if not exists:
+            return jsonify({"error": "Monitor not found."}), 404
+        updates["next_check"] = now_ts()
+        sets = ", ".join(f"{key}=?" for key in updates)
+        conn.execute(f"UPDATE monitors SET {sets} WHERE id=?", [*updates.values(), monitor_id])
+        row = conn.execute("SELECT * FROM monitors WHERE id=?", (monitor_id,)).fetchone()
+    return jsonify(serialize_monitor(row))
+
+
+@app.get("/api/export.csv")
+def export_csv():
+    import csv
+    import io
+    from flask import Response
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "name", "url", "kind", "interval_min", "health", "last_price", "currency",
+        "last_checked", "last_change", "success_rate", "change_count"
+    ])
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM monitors ORDER BY id").fetchall()
+    for row in rows:
+        m = serialize_monitor(row)
+        writer.writerow([
+            m["name"], m["url"], m.get("kind"), m["interval_min"], m["health"],
+            m.get("last_price"), m.get("currency"), m.get("last_checked_iso"),
+            m.get("last_change_at_iso"), m.get("success_rate"), m.get("change_count"),
+        ])
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=pricepulse-monitors.csv"},
+    )
 
 
 @app.post("/api/monitors/<int:monitor_id>/toggle")
