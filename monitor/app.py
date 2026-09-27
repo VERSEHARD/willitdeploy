@@ -18,7 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
 
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.5.0"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -165,6 +165,19 @@ def migrate_schema():
         );
         CREATE INDEX IF NOT EXISTS idx_product_events_created
             ON product_events(created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS pilot_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at INTEGER NOT NULL,
+            contact TEXT NOT NULL,
+            urls_json TEXT NOT NULL,
+            rules TEXT NOT NULL,
+            delivery TEXT,
+            status TEXT NOT NULL DEFAULT 'new',
+            user_agent TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_pilot_requests_created
+            ON pilot_requests(created_at DESC);
         """)
 
         lab_additions = {
@@ -921,14 +934,19 @@ def startup_self_test():
     workspace_response = client.get("/app")
     assert workspace_response.status_code == 200
     assert b"Reliability lab" in workspace_response.data
+    pilot_response = client.get("/pilot")
+    assert pilot_response.status_code == 200
+    assert b"Founding pilot" in pilot_response.data
     landing_audit = audit_rendered_ui(landing_response, "landing")
     workspace_audit = audit_rendered_ui(workspace_response, "workspace")
+    pilot_audit = audit_rendered_ui(pilot_response, "pilot")
     assert audit_css_contract() is True
     metrics_response = client.get("/api/product-metrics")
     assert metrics_response.status_code == 200
     print("[PricePulse] ui-contract PASS", json.dumps({
         "landing": landing_audit,
         "workspace": workspace_audit,
+        "pilot": pilot_audit,
     }, sort_keys=True), flush=True)
 
     try:
@@ -1134,6 +1152,126 @@ def landing():
     return render_template("landing.html", version=APP_VERSION, **proof)
 
 
+@app.route("/pilot", methods=["GET", "POST"])
+def pilot():
+    error = None
+    success = None
+    submitted = {
+        "contact": "",
+        "urls": "",
+        "rules": "",
+        "delivery": "",
+    }
+
+    if request.method == "POST":
+        submitted = {
+            "contact": str(request.form.get("contact") or "").strip(),
+            "urls": str(request.form.get("urls") or "").strip(),
+            "rules": str(request.form.get("rules") or "").strip(),
+            "delivery": str(request.form.get("delivery") or "").strip(),
+        }
+        honeypot = str(request.form.get("website") or "").strip()
+        agreed = request.form.get("agreement") == "on"
+
+        try:
+            if honeypot:
+                raise ValueError("Could not submit this request.")
+            if len(submitted["contact"]) < 3 or len(submitted["contact"]) > 180:
+                raise ValueError("Add an email, GitHub username, or another contact we can reply to.")
+            if len(submitted["rules"]) < 5 or len(submitted["rules"]) > 2000:
+                raise ValueError("Describe what should trigger an alert.")
+            if not agreed:
+                raise ValueError("Confirm the pilot terms before submitting.")
+
+            raw_urls = [
+                line.strip() for line in submitted["urls"].splitlines()
+                if line.strip()
+            ]
+            if not raw_urls:
+                raise ValueError("Add at least one public URL.")
+            if len(raw_urls) > 5:
+                raise ValueError("The founding pilot supports up to 5 URLs.")
+
+            clean_urls = []
+            for url in raw_urls:
+                clean_urls.append(validate_public_url(url))
+
+            # Avoid accidental duplicate submissions from double-clicks/reloads.
+            duplicate_cutoff = now_ts() - 600
+            urls_json = json.dumps(clean_urls)
+            with db() as conn:
+                duplicate = conn.execute(
+                    """SELECT id FROM pilot_requests
+                       WHERE contact=? AND urls_json=? AND created_at>=?
+                       ORDER BY id DESC LIMIT 1""",
+                    (submitted["contact"], urls_json, duplicate_cutoff),
+                ).fetchone()
+                if duplicate:
+                    request_id = duplicate["id"]
+                else:
+                    cur = conn.execute(
+                        """INSERT INTO pilot_requests(
+                            created_at,contact,urls_json,rules,delivery,status,user_agent
+                        ) VALUES(?,?,?,?,?,'new',?)""",
+                        (
+                            now_ts(),
+                            submitted["contact"],
+                            urls_json,
+                            submitted["rules"],
+                            submitted["delivery"][:180] or None,
+                            (request.headers.get("User-Agent") or "")[:220],
+                        ),
+                    )
+                    request_id = cur.lastrowid
+                    conn.execute(
+                        "INSERT INTO product_events(created_at,event_type,meta) VALUES(?,?,?)",
+                        (
+                            now_ts(),
+                            "pilot_submitted",
+                            json.dumps({"request_id": request_id, "url_count": len(clean_urls)}),
+                        ),
+                    )
+
+            success = {
+                "request_id": request_id,
+                "url_count": len(clean_urls),
+            }
+            submitted = {"contact": "", "urls": "", "rules": "", "delivery": ""}
+        except Exception as exc:
+            error = str(exc)
+
+    return render_template(
+        "pilot.html",
+        version=APP_VERSION,
+        error=error,
+        success=success,
+        submitted=submitted,
+    )
+
+
+@app.get("/api/pilot-requests")
+def pilot_requests():
+    denied = require_admin()
+    if denied:
+        return denied
+    with db() as conn:
+        rows = conn.execute(
+            """SELECT id,created_at,contact,urls_json,rules,delivery,status
+               FROM pilot_requests ORDER BY id DESC LIMIT 100"""
+        ).fetchall()
+    out = []
+    for row in rows:
+        d = dict(row)
+        d["created_at_iso"] = iso(d["created_at"])
+        try:
+            d["urls"] = json.loads(d.pop("urls_json"))
+        except Exception:
+            d["urls"] = []
+            d.pop("urls_json", None)
+        out.append(d)
+    return jsonify(out)
+
+
 @app.get("/app")
 def index():
     return render_template(
@@ -1214,6 +1352,7 @@ def product_metrics():
         "window_days": 7,
         "landing_views": views,
         "pilot_clicks": clicks,
+        "pilot_submissions": int(counts.get("pilot_submitted", 0)),
         "workspace_opens": int(counts.get("workspace_open", 0)),
         "probe_starts": int(counts.get("probe_started", 0)),
         "pilot_ctr": round(clicks / views * 100, 1) if views else None,
