@@ -249,3 +249,25 @@ button,input,select,textarea{font:inherit}
 .pp-lab-summary small{display:block;margin-top:3px;color:#a0a39f;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:7px}
 .pp-lab-history{display:flex;justify-content:space-between;gap:8px;margin-top:10px;padding-top:9px;border-top:1px solid var(--pp-border);font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:7px;color:#858984;text-transform:uppercase;letter-spacing:.03em}
 :focus-visible{outline:2px solid var(--pp-accent);outline-offset:2px}
+
+.pp-kind-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.pp-kind-option{appearance:none;border:1px solid var(--pp-border);background:#fff;border-radius:6px;padding:11px;text-align:left;display:flex;gap:9px;align-items:flex-start;color:var(--pp-text);transition:border-color .12s,background .12s}
+.pp-kind-option:hover{background:#fafaf7;border-color:var(--pp-border-strong)}
+.pp-kind-option.active{background:var(--pp-accent-soft);border-color:#f1a08d}
+.pp-kind-option>i{font-size:17px;color:#6d716d;margin-top:1px}
+.pp-kind-option.active>i{color:#c33f23}
+.pp-kind-option strong,.pp-kind-option small{display:block}
+.pp-kind-option strong{font-size:11px;font-weight:600}
+.pp-kind-option small{font-size:9px;line-height:1.4;color:#8b8f8a;margin-top:2px}
+.pp-rule-panel{padding:12px;border:1px solid var(--pp-border);border-radius:6px;background:#fafaf8}
+.pp-field-help{font-size:9px;line-height:1.45;color:#91958f;margin-top:7px}
+.pp-inline-note{display:flex;gap:8px;align-items:flex-start;color:#686c68;font-size:10px;line-height:1.5}
+.pp-inline-note i{font-size:16px;color:#555a55}
+.pp-advanced{margin-top:15px;border-top:1px solid var(--pp-border)}
+.pp-advanced summary{cursor:pointer;list-style:none;padding:12px 0 4px;color:#676b67;font-size:10px;font-weight:600}
+.pp-advanced summary::-webkit-details-marker{display:none}
+.pp-advanced summary::before{content:"+";display:inline-block;width:16px;color:#979a96;font-family:"IBM Plex Mono",ui-monospace,monospace}
+.pp-advanced[open] summary::before{content:"−"}
+.pp-advanced-body{padding:10px 0 2px}
+.pp-admin-key{margin-top:13px;padding-top:13px;border-top:1px solid var(--pp-border)}
+@media(max-width:720px){.pp-kind-grid{grid-template-columns:1fr}}
