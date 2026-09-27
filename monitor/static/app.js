@@ -169,7 +169,7 @@ function renderMoney(){
   $('#moneyViews').textContent=p.landing_views||0;
   $('#moneyClicks').textContent=p.pilot_clicks||0;
   $('#moneyCtr').textContent=p.pilot_ctr==null?'—':p.pilot_ctr+'%';
-  $('#moneyProbes').textContent=p.probe_starts||0;
+  $('#moneyProbes').textContent=p.pilot_submissions||0;
 }
 
 async function loadAll(){
