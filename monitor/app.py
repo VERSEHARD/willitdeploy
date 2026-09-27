@@ -24,6 +24,7 @@ DB_PATH = DATA_DIR / "pricepulse.sqlite3"
 ADMIN_TOKEN = os.getenv("MONITOR_TOKEN", "")
 CHECK_TICK_SECONDS = max(10, int(os.getenv("CHECK_TICK_SECONDS", "30")))
 DEFAULT_INTERVAL_MIN = max(1, int(os.getenv("DEFAULT_INTERVAL_MIN", "5")))
+SEED_DEMO = os.getenv("SEED_DEMO", "1") == "1"
 MAX_BODY_BYTES = 2_000_000
 USER_AGENT = os.getenv(
     "FETCH_USER_AGENT",
@@ -206,7 +207,9 @@ def send_webhook(url, payload):
         r = requests.post(url, json=payload, timeout=(5, 10), allow_redirects=False)
         return {"ok": 200 <= r.status_code < 300, "status": r.status_code}
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        result = {"ok": False, "error": str(exc)}
+        print("[PricePulse] check", json.dumps({"id": monitor_id, **result}, sort_keys=True), flush=True)
+        return result
 
 
 def run_monitor(monitor_id):
@@ -295,7 +298,7 @@ def run_monitor(monitor_id):
                 },
             )
 
-        return {
+        result = {
             "ok": True,
             "status": status,
             "changed": changed,
@@ -304,6 +307,8 @@ def run_monitor(monitor_id):
             "keyword_ok": keyword_ok,
             "threshold_ok": threshold_ok,
         }
+        print("[PricePulse] check", json.dumps({"id": monitor_id, **result}, sort_keys=True), flush=True)
+        return result
 
     except Exception as exc:
         next_check = checked + int(m["interval_min"]) * 60
@@ -351,6 +356,53 @@ def require_admin():
     if token != ADMIN_TOKEN:
         return (jsonify({"error": "Unauthorized."}), 401)
     return None
+
+
+
+def startup_self_test():
+    fixture = """
+    <html><body><div class="product_main">
+      <p class="price_color">£51.77</p><p>In stock</p>
+    </div></body></html>
+    """
+    content = extract_content(fixture, ".product_main")
+    price = extract_price(content, r"£([0-9.]+)")
+    assert price is not None and abs(price - 51.77) < 0.001
+    assert "In stock" in content
+    try:
+        validate_public_url("http://127.0.0.1/internal")
+        raise AssertionError("SSRF guard failed")
+    except ValueError:
+        pass
+    print("[PricePulse] startup-self-test PASS", flush=True)
+
+
+def seed_demo_monitor():
+    if not SEED_DEMO:
+        return
+    with db() as conn:
+        row = conn.execute("SELECT id FROM monitors WHERE name=?", ("Books demo under 60",)).fetchone()
+        if row:
+            return
+        conn.execute(
+            """INSERT INTO monitors(
+                name,url,selector,must_contain,price_regex,max_price,interval_min,
+                webhook_url,enabled,created_at,next_check
+            ) VALUES(?,?,?,?,?,?,?,?,1,?,?)""",
+            (
+                "Books demo under 60",
+                "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html",
+                ".product_main",
+                "In stock",
+                r"£([0-9.]+)",
+                60.0,
+                60,
+                None,
+                now_ts(),
+                now_ts(),
+            ),
+        )
+    print("[PricePulse] demo monitor seeded", flush=True)
 
 
 @app.before_request
@@ -475,3 +527,6 @@ def delete_monitor(monitor_id):
 
 
 init_db()
+startup_self_test()
+seed_demo_monitor()
+ensure_scheduler()
