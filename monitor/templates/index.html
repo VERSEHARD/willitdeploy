@@ -6,7 +6,10 @@
   <title>PricePulse — Monitoring workspace</title>
   <meta name="description" content="Monitor prices, restocks, listings and competitor pages. Keep dated evidence when something changes.">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/css/tabler.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.34.1/dist/tabler-icons.min.css">\n  <link rel="preconnect" href="https://fonts.googleapis.com">\n  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.34.1/dist/tabler-icons.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/pricepulse/static/app.css?v={{ version }}">
 </head>
 <body>
@@ -30,7 +33,7 @@
 
     <div class="pp-sidebar-bottom">
       <div class="pp-plan">
-        <span class="badge bg-blue-lt text-blue">EARLY ACCESS</span>
+        <span class="badge pp-badge-accent">EARLY ACCESS</span>
         <strong>Managed monitoring pilot</strong>
         <span>Up to 5 public URLs · 7 days</span>
         <a href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=pricepulse.yml" class="btn btn-sm btn-primary w-100">Start for $5</a>
@@ -63,9 +66,9 @@
       <div class="pp-view active" id="view-overview">
         <div class="pp-hero">
           <div>
-            <span class="pp-kicker"><span class="pp-live-dot"></span> Continuous monitoring</span>
-            <h2>Know when the web changes<br>before it costs you.</h2>
-            <p>Track a product, competitor, listing or pricing page. PricePulse checks it on schedule, stores evidence, filters noise and surfaces the signal.</p>
+            <span class="pp-kicker"><span class="pp-live-dot"></span> Monitoring is running</span>
+            <h2>Everything you asked PricePulse to watch.</h2>
+            <p>Current state, recent signals, and the evidence behind each change.</p>
           </div>
           <div class="pp-hero-actions">
             <button class="btn btn-light" data-bs-toggle="modal" data-bs-target="#newMonitor"><i class="ti ti-radar me-1"></i> Monitor a page</button>
@@ -124,7 +127,7 @@
             <div class="pp-proof-strip">
               <div class="pp-proof-copy">
                 <span class="pp-panel-kicker">LIVE PROOF</span>
-                <h3>Real checks, not a mock dashboard.</h3>
+                <h3>Production checks from real public pages.</h3>
                 <p id="proofText">Loading the most recent external fetch result…</p>
               </div>
               <div class="pp-proof-stat"><span>Reliability lab</span><strong id="proofPassRate">—</strong><small id="proofRunTime">waiting for first run</small></div>
@@ -200,7 +203,7 @@
       <div class="pp-view" id="view-lab">
         <div class="pp-section-head">
           <div><span class="pp-panel-kicker">REAL-WORLD QA</span><h2>Reliability lab</h2><p>The engine continuously checks different public-site patterns so we can measure reliability instead of claiming it.</p></div>
-          <span class="badge bg-blue-lt text-blue">runs automatically</span>
+          <span class="badge pp-badge-accent">runs automatically</span>
         </div>
 
         <div class="pp-lab-summary">
@@ -215,7 +218,7 @@
         <div class="pp-panel mt-4">
           <div class="pp-panel-head">
             <div><span class="pp-panel-kicker">WILLINGNESS-TO-PAY EXPERIMENT</span><h3>Real purchase intent · last 7 days</h3></div>
-            <span class="badge bg-purple-lt text-purple">no fake revenue</span>
+            <span class="badge pp-badge-accent">no fake revenue</span>
           </div>
           <div class="pp-money-grid">
             <div><span>Landing views</span><strong id="moneyViews">0</strong></div>
