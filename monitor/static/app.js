@@ -1,3 +1,4 @@
+const BASE='/pricepulse';
 const $ = s => document.querySelector(s);
 const esc = (v='') => String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]));
 
@@ -27,7 +28,7 @@ function ruleText(m) {
 }
 
 async function loadAll() {
-  const [mr, er] = await Promise.all([fetch('/api/monitors',{cache:'no-store'}), fetch('/api/events?limit=30',{cache:'no-store'})]);
+  const [mr, er] = await Promise.all([fetch(BASE+'/api/monitors',{cache:'no-store'}), fetch(BASE+'/api/events?limit=30',{cache:'no-store'})]);
   const monitors = await mr.json();
   const events = await er.json();
 
@@ -62,7 +63,7 @@ async function loadAll() {
 }
 
 window.runNow = async id => {
-  const r = await fetch('/api/monitors/'+id+'/run',{method:'POST',headers:authHeaders(false)});
+  const r = await fetch(BASE+'/api/monitors/'+id+'/run',{method:'POST',headers:authHeaders(false)});
   const d = await r.json();
   if (!r.ok) alert(d.error || 'Run failed');
   await loadAll();
@@ -70,7 +71,7 @@ window.runNow = async id => {
 
 window.removeMonitor = async id => {
   if (!confirm('Delete this monitor?')) return;
-  const r = await fetch('/api/monitors/'+id,{method:'DELETE',headers:authHeaders(false)});
+  const r = await fetch(BASE+'/api/monitors/'+id,{method:'DELETE',headers:authHeaders(false)});
   const d = await r.json();
   if (!r.ok) alert(d.error || 'Delete failed');
   await loadAll();
@@ -89,7 +90,7 @@ $('#monitorForm').addEventListener('submit', async e => {
     max_price: $('#maxPrice').value === '' ? null : Number($('#maxPrice').value),
     webhook_url: $('#webhook').value.trim() || null
   };
-  const r = await fetch('/api/monitors',{method:'POST',headers:authHeaders(),body:JSON.stringify(body)});
+  const r = await fetch(BASE+'/api/monitors',{method:'POST',headers:authHeaders(),body:JSON.stringify(body)});
   const d = await r.json();
   if (!r.ok) {
     $('#formError').textContent=d.error || 'Could not create monitor';
@@ -105,7 +106,7 @@ $('#monitorForm').addEventListener('submit', async e => {
 
 async function health() {
   try {
-    const r=await fetch('/health',{cache:'no-store'});
+    const r=await fetch(BASE+'/health',{cache:'no-store'});
     const d=await r.json();
     $('#health').textContent = r.ok ? 'Online · '+d.version : 'Unavailable';
   } catch {
