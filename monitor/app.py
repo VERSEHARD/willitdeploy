@@ -598,7 +598,7 @@ def run_reliability_lab():
         with db() as conn:
             conn.execute(
                 """INSERT INTO lab_runs(target,url,created_at,ok,http_status,latency_ms,content_bytes,signal,error)
-                   VALUES(?,?,?,?,?,?,?,?,?)""
+                   VALUES(?,?,?,?,?,?,?,?,?)""",
                 (
                     target["target"],
                     target["url"],
