@@ -7,7 +7,7 @@
   <meta name="description" content="Empirically test Node repositories across current and upcoming runtimes.">
   <!-- Human-maintained UI package: Tabler Core 1.6.0 (MIT), pinned deliberately. -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/css/tabler.min.css">
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v={{ version }}">
 </head>
 <body>
 <div class="page">
@@ -175,22 +175,20 @@
 </div>
 
 
-<div class="modal fade" id="logModal" tabindex="-1" aria-labelledby="logModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <div>
-          <h5 class="modal-title" id="logModalLabel">Build log</h5>
-          <div class="small text-secondary" id="logModalMeta"></div>
-        </div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<dialog id="logModal" class="wid-dialog">
+  <div class="card wid-dialog-card">
+    <div class="card-header d-flex justify-content-between align-items-start gap-3">
+      <div>
+        <h3 class="card-title mb-1" id="logModalLabel">Build log</h3>
+        <div class="small text-secondary" id="logModalMeta"></div>
       </div>
-      <div class="modal-body p-0">
-        <pre class="log log-modal mb-0" id="logModalText"></pre>
-      </div>
+      <button type="button" class="btn btn-sm btn-ghost-secondary" id="logModalClose" aria-label="Close">Close</button>
+    </div>
+    <div class="card-body p-0">
+      <pre class="log log-modal mb-0" id="logModalText"></pre>
     </div>
   </div>
-</div>
+</dialog>
 
 <script>
   window.WID_CONFIG = {
@@ -199,6 +197,6 @@
   };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/js/tabler.min.js"></script>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{ version }}"></script>
 </body>
 </html>
