@@ -243,3 +243,5 @@ button,input,select,textarea{font:inherit}
   .pp-history-row{grid-template-columns:1fr 1fr}
   .pp-history-row span:last-child{grid-column:1/-1}
 }
+
+.pp-badge-accent{background:var(--pp-accent-soft)!important;color:#b7381f!important;border:1px solid #ffd2c6!important}
