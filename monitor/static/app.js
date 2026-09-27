@@ -144,8 +144,8 @@ function renderLab(){
   const targets=lab.targets||[];
   $('#labCards').innerHTML=targets.length?targets.map(t=>'<div class="col-12 col-md-6 col-xl-3"><div class="pp-lab-card"><div class="pp-lab-card-head"><div><h3>'+esc(t.target)+'</h3><p>'+esc(t.url)+'</p></div><span class="badge '+(t.ok?'bg-green-lt text-green':'bg-red-lt text-red')+'">'+(t.ok?'PASS':'FAIL')+'</span></div><div class="pp-lab-meta"><div><span>HTTP</span><strong>'+esc(t.http_status||'—')+'</strong></div><div><span>Latency</span><strong>'+esc(fmtLatency(t.latency_ms))+'</strong></div><div><span>Stable</span><strong>'+(t.stable==null?'—':(t.stable?'YES':'NO'))+'</strong></div></div>'+(t.error?'<div class="small text-danger mt-3">'+esc(t.error)+'</div>':'')+'</div></div>').join(''):'<div class="col-12"><div class="pp-empty">Reliability run is starting…</div></div>';
 
-  const real=state.monitors.find(m=>m.name==='Books demo under 60');
-  $('#proofText').textContent=real&&real.last_checked_iso?'Live sample page fetched '+fmtTime(real.last_checked_iso)+' · detected '+fmtPrice(real)+' · '+(real.last_error?'error: '+real.last_error:'healthy check'):'Waiting for the external demo monitor.';
+  const real=state.monitors.find(m=>m.name==='Live proof · Linear pricing');
+  $('#proofText').textContent=real&&real.last_checked_iso?'Linear pricing fetched '+fmtTime(real.last_checked_iso)+' · detected '+fmtPrice(real)+' · '+(real.last_error?'error: '+real.last_error:'healthy check'):'Waiting for the external demo monitor.';
 }
 
 function renderMoney(){
