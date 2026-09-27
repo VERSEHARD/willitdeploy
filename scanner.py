@@ -1072,6 +1072,151 @@ def quick_npm_probe(
     finally:
         shutil.rmtree(session, ignore_errors=True)
 
+
+def repair_npm11_lockfile(
+    repo_url: str,
+    branch: str | None,
+    work_root: Path,
+    runtime_root: Path,
+    project_path: str | None = None,
+    node_major: int = 22,
+    npm_old: str = "10.9.9",
+    npm_new: str = "11.19.0",
+) -> dict[str, Any]:
+    """
+    Produce and verify a minimal package-lock-only repair for the specific class
+    where npm 10 accepts a lockfile but npm 11 rejects it as out of sync.
+
+    Safety: lifecycle scripts are disabled and only package-lock.json is allowed
+    to change. The function refuses to return a repair if any other tracked file
+    changes or if either npm 10 or npm 11 verification fails afterwards.
+    """
+    session = Path(tempfile.mkdtemp(prefix="wid-repair-", dir=work_root))
+    clone_dir = session / "repo"
+    try:
+        size_mb = clone_repo(repo_url, branch, clone_dir)
+        project, projects, selected = choose_project(clone_dir, project_path)
+        if project is None or not selected:
+            return {"status": "not_applicable", "reason": "no_node_project", "repo": repo_slug(repo_url)}
+
+        pkg = load_json(project / "package.json")
+        pm = detect_package_manager(project, pkg)
+        lock_path = project / "package-lock.json"
+        if pm["name"] != "npm" or not lock_path.exists():
+            return {
+                "status": "not_applicable",
+                "reason": "requires_npm_package_lock",
+                "repo": repo_slug(repo_url),
+                "package_manager": pm,
+            }
+
+        node_dir = ensure_node(node_major, runtime_root)
+        env = sanitized_env(node_dir, session)
+        chown_tree(session)
+        npm_root = runtime_root.parent / "npm-tools"
+        cli_old, _, _ = npm_cli_for(node_dir, npm_old, npm_root)
+        cli_new, _, _ = npm_cli_for(node_dir, npm_new, npm_root)
+        common = ["--ignore-scripts", "--no-audit", "--no-fund", "--progress=false"]
+
+        before_old = run(cli_old + ["ci", "--dry-run"] + common, cwd=project, env=env, timeout=min(INSTALL_TIMEOUT, 180), limits=True, drop_privileges=True)
+        before_new = run(cli_new + ["ci", "--dry-run"] + common, cwd=project, env=env, timeout=min(INSTALL_TIMEOUT, 180), limits=True, drop_privileges=True)
+        before_sigs = classify_failure(before_new["output"])
+
+        if before_old["code"] != 0:
+            return {
+                "status": "refused",
+                "reason": "npm10_baseline_not_clean",
+                "repo": repo_slug(repo_url),
+                "before_old": before_old,
+                "before_new": before_new,
+            }
+        if before_new["code"] == 0 or "lockfile_mismatch" not in {x.get("code") for x in before_sigs}:
+            return {
+                "status": "refused",
+                "reason": "not_target_lockfile_mismatch",
+                "repo": repo_slug(repo_url),
+                "before_old": before_old,
+                "before_new": before_new,
+            }
+
+        original = lock_path.read_text(encoding="utf-8")
+        repair = run(
+            cli_new + ["install", "--package-lock-only"] + common,
+            cwd=project,
+            env=env,
+            timeout=min(INSTALL_TIMEOUT, 240),
+            limits=True,
+            drop_privileges=True,
+        )
+        if repair["code"] != 0:
+            return {
+                "status": "failed",
+                "reason": "lockfile_refresh_failed",
+                "repo": repo_slug(repo_url),
+                "repair": repair,
+            }
+
+        changed = run(["git", "status", "--porcelain"], cwd=clone_dir, timeout=30)
+        changed_paths = []
+        for line in changed["output"].splitlines():
+            if not line.strip():
+                continue
+            changed_paths.append(line[3:].strip())
+        expected_rel = str(lock_path.relative_to(clone_dir))
+        unexpected = [p for p in changed_paths if p != expected_rel]
+        if unexpected:
+            return {
+                "status": "refused",
+                "reason": "repair_changed_unexpected_files",
+                "repo": repo_slug(repo_url),
+                "changed_paths": changed_paths,
+                "unexpected": unexpected,
+            }
+
+        updated = lock_path.read_text(encoding="utf-8")
+        if updated == original:
+            return {
+                "status": "refused",
+                "reason": "lockfile_unchanged",
+                "repo": repo_slug(repo_url),
+            }
+
+        after_new = run(cli_new + ["ci", "--dry-run"] + common, cwd=project, env=env, timeout=min(INSTALL_TIMEOUT, 180), limits=True, drop_privileges=True)
+        after_old = run(cli_old + ["ci", "--dry-run"] + common, cwd=project, env=env, timeout=min(INSTALL_TIMEOUT, 180), limits=True, drop_privileges=True)
+
+        patch = run(["git", "diff", "--", expected_rel], cwd=clone_dir, timeout=30)["output"]
+        add_lines = sum(1 for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++"))
+        del_lines = sum(1 for line in patch.splitlines() if line.startswith("-") and not line.startswith("---"))
+        verified = after_new["code"] == 0 and after_old["code"] == 0 and bool(patch.strip())
+
+        return {
+            "status": "verified" if verified else "failed",
+            "repo": repo_slug(repo_url),
+            "repo_size_mb": size_mb,
+            "project_path": selected,
+            "node_major": node_major,
+            "npm_old": npm_old,
+            "npm_new": npm_new,
+            "changed_paths": changed_paths,
+            "patch": patch,
+            "patch_bytes": len(patch.encode("utf-8")),
+            "additions": add_lines,
+            "deletions": del_lines,
+            "before": {
+                "npm_old": "pass" if before_old["code"] == 0 else "fail",
+                "npm_new": "pass" if before_new["code"] == 0 else "fail",
+                "npm_new_signatures": before_sigs,
+            },
+            "after": {
+                "npm_old": "pass" if after_old["code"] == 0 else "fail",
+                "npm_new": "pass" if after_new["code"] == 0 else "fail",
+                "npm_new_signatures": classify_failure(after_new["output"]),
+            },
+            "verified": verified,
+        }
+    finally:
+        shutil.rmtree(session, ignore_errors=True)
+
 def diagnose_matrix(matrix: list[dict[str, Any]] | None) -> dict[str, Any] | None:
     if not matrix:
         return None
