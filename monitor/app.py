@@ -12,7 +12,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -178,6 +178,24 @@ def migrate_schema():
         );
         CREATE INDEX IF NOT EXISTS idx_pilot_requests_created
             ON pilot_requests(created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS listing_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            monitor_id INTEGER NOT NULL,
+            item_key TEXT NOT NULL,
+            url TEXT NOT NULL,
+            title TEXT,
+            price REAL,
+            currency TEXT,
+            first_seen INTEGER NOT NULL,
+            last_seen INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            meta TEXT,
+            UNIQUE(monitor_id, item_key),
+            FOREIGN KEY(monitor_id) REFERENCES monitors(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_listing_items_monitor_seen
+            ON listing_items(monitor_id, last_seen DESC);
         """)
 
         lab_additions = {
@@ -410,6 +428,65 @@ def extract_structured_product(html):
             continue
 
     return result
+
+
+def extract_marketplace_listings(html, base_url):
+    """Extract public listing cards from supported marketplace/search pages."""
+    soup = BeautifulSoup(html, "html.parser")
+    host = (urlparse(base_url).hostname or "").lower()
+    results = []
+    seen = set()
+
+    if "vinted." in host:
+        link_pattern = re.compile(r"/items/(\d+)")
+        currency = "GBP" if host.endswith(".co.uk") else None
+    elif "ebay." in host:
+        link_pattern = re.compile(r"/itm/(?:[^/]+/)?(\d+)")
+        currency = "GBP" if host.endswith(".co.uk") else None
+    else:
+        return results
+
+    for anchor in soup.find_all("a", href=True):
+        href = anchor.get("href") or ""
+        match = link_pattern.search(href)
+        if not match:
+            continue
+        item_key = match.group(1)
+        if item_key in seen:
+            continue
+
+        node = anchor
+        context = ""
+        for _ in range(5):
+            node = node.parent if node and node.parent else None
+            if node is None:
+                break
+            candidate = normalize_text(node.get_text(" ", strip=True))
+            if len(candidate) >= 12:
+                context = candidate
+            if len(candidate) >= 40:
+                break
+
+        anchor_text = normalize_text(anchor.get_text(" ", strip=True))
+        title = anchor.get("title") or anchor.get("aria-label") or anchor_text or context[:180]
+        title = normalize_text(title)[:220]
+        price = extract_price(context, None)
+        if price is None:
+            price = extract_price(anchor_text, None)
+
+        results.append({
+            "item_key": item_key,
+            "url": urljoin(base_url, href.split("?")[0]),
+            "title": title,
+            "price": price,
+            "currency": currency,
+            "context": context[:500],
+        })
+        seen.add(item_key)
+        if len(results) >= 100:
+            break
+
+    return results
 
 
 def apply_ignore_regex(text, pattern):
@@ -1585,7 +1662,7 @@ def create_monitor():
         price_regex = str(payload.get("price_regex") or "").strip() or None
         ignore_regex = str(payload.get("ignore_regex") or "").strip() or None
         kind = str(payload.get("kind") or "content").strip().lower()
-        if kind not in {"content", "price", "stock", "keyword"}:
+        if kind not in {"content", "price", "stock", "keyword", "listing_feed"}:
             kind = "content"
         currency = str(payload.get("currency") or "").strip().upper() or None
         max_price = payload.get("max_price")
@@ -1648,7 +1725,7 @@ def update_monitor(monitor_id):
             if key == "name" and not value:
                 raise ValueError("Name cannot be empty.")
             if key == "kind":
-                if value not in {"content", "price", "stock", "keyword"}:
+                if value not in {"content", "price", "stock", "keyword", "listing_feed"}:
                     raise ValueError("Invalid monitor type.")
             if key == "interval_min":
                 value = max(1, min(1440, int(value)))
