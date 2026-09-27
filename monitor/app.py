@@ -846,7 +846,7 @@ def startup_self_test():
     assert structured["availability"] == "InStock"
 
     client = app.test_client()
-    landing_response = client.get("/")
+    landing_response = client.get("/", headers={"X-PricePulse-Self-Test": "1"})
     assert landing_response.status_code == 200
     assert b"PricePulse" in landing_response.data
     workspace_response = client.get("/app")
@@ -906,6 +906,17 @@ def boot():
     ensure_scheduler()
 
 
+def should_track_request():
+    if request.headers.get("X-PricePulse-Self-Test") == "1":
+        return False
+    ua = (request.headers.get("User-Agent") or "").lower()
+    bot_tokens = (
+        "bot", "crawler", "spider", "slurp", "headless", "uptime",
+        "monitoring", "railway", "preview", "facebookexternalhit", "linkedinbot"
+    )
+    return not any(token in ua for token in bot_tokens)
+
+
 def public_proof():
     with db() as conn:
         latest_rows = conn.execute(
@@ -915,8 +926,27 @@ def public_proof():
         ).fetchall()
         checks = conn.execute("SELECT COUNT(*) AS c FROM snapshots").fetchone()["c"]
         monitors = conn.execute("SELECT COUNT(*) AS c FROM monitors").fetchone()["c"]
+        proof_row = conn.execute(
+            """SELECT * FROM monitors
+               WHERE is_demo=1
+               ORDER BY id DESC LIMIT 1"""
+        ).fetchone()
+        recent_events = conn.execute(
+            """SELECT e.*,m.name AS monitor_name
+               FROM events e JOIN monitors m ON m.id=e.monitor_id
+               WHERE m.is_demo=1
+               ORDER BY e.id DESC LIMIT 3"""
+        ).fetchall()
+
     latest = [dict(r) for r in latest_rows]
     stable_values = [r for r in latest if r.get("stable") is not None]
+    proof_monitor = serialize_monitor(proof_row) if proof_row else None
+    proof_events = []
+    for row in recent_events:
+        item = dict(row)
+        item["created_at_iso"] = iso(item["created_at"])
+        proof_events.append(item)
+
     return {
         "lab_targets": len(latest),
         "lab_passed": sum(1 for r in latest if r.get("ok")),
@@ -927,17 +957,22 @@ def public_proof():
         ) if stable_values else None,
         "checks": checks,
         "monitors": monitors,
+        "proof_monitor": proof_monitor,
+        "proof_events": proof_events,
+        "lab_latest": latest[:8],
     }
+
 
 
 @app.get("/")
 def landing():
     proof = public_proof()
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO product_events(created_at,event_type,meta) VALUES(?,?,?)",
-            (now_ts(), "landing_view", json.dumps({"ua": (request.headers.get("User-Agent") or "")[:180]})),
-        )
+    if should_track_request():
+        with db() as conn:
+            conn.execute(
+                "INSERT INTO product_events(created_at,event_type,meta) VALUES(?,?,?)",
+                (now_ts(), "landing_view", json.dumps({"ua": (request.headers.get("User-Agent") or "")[:180]})),
+            )
     return render_template("landing.html", version=APP_VERSION, **proof)
 
 
