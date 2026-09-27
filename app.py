@@ -438,6 +438,19 @@ def research_status():
     return jsonify(state)
 
 
+@app.get("/repair")
+def repair_offer():
+    state = read_research_state()
+    return render_template(
+        "repair.html",
+        version=APP_VERSION,
+        screened=state.get("probe_completed", 0),
+        candidates=state.get("candidates", 0),
+        confirmed=state.get("confirmed", 0),
+        repair_verified=state.get("repair_verified", 0),
+    )
+
+
 @app.get("/")
 def index():
     return render_template(
