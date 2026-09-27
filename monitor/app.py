@@ -26,7 +26,8 @@ DB_PATH = DATA_DIR / "pricepulse.sqlite3"
 ADMIN_TOKEN = os.getenv("MONITOR_TOKEN", "")
 CHECK_TICK_SECONDS = max(10, int(os.getenv("CHECK_TICK_SECONDS", "30")))
 DEFAULT_INTERVAL_MIN = max(1, int(os.getenv("DEFAULT_INTERVAL_MIN", "5")))
-SEED_DEMO = os.getenv("SEED_DEMO", "1") == "1"\nENABLE_BACKGROUND = os.getenv("ENABLE_BACKGROUND", "1") == "1"
+SEED_DEMO = os.getenv("SEED_DEMO", "1") == "1"
+ENABLE_BACKGROUND = os.getenv("ENABLE_BACKGROUND", "1") == "1"
 MAX_BODY_BYTES = 2_000_000
 USER_AGENT = os.getenv(
     "FETCH_USER_AGENT",
