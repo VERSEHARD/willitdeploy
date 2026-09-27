@@ -1,0 +1,55 @@
+name: "$1 npm 11 repair request"
+description: "Request a verified package-lock repair when npm 10 passes but npm 11 fails."
+title: "[Repair] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying the WillItDeploy launch experiment.
+
+        We first reproduce your failure. If it is not the repairable npm 10 → npm 11 lockfile-mismatch class, you do not pay.
+  - type: input
+    id: repo
+    attributes:
+      label: Public GitHub repository
+      description: Paste the public repository URL.
+      placeholder: https://github.com/owner/repo
+    validations:
+      required: true
+  - type: input
+    id: branch
+    attributes:
+      label: Branch
+      placeholder: main
+  - type: input
+    id: path
+    attributes:
+      label: Project path
+      description: Leave blank for repository root.
+      placeholder: apps/web
+  - type: textarea
+    id: error
+    attributes:
+      label: Current npm error
+      description: Paste only the relevant error lines.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      placeholder: 22.x / 24.x / 26.x
+  - type: input
+    id: npm
+    attributes:
+      label: npm version
+      placeholder: 11.x
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Verification
+      options:
+        - label: I understand this request is for a public repository and the launch repair costs $1 only after WillItDeploy confirms it can produce a verified patch.
+          required: true
