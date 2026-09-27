@@ -14,7 +14,7 @@ from flask import Flask, jsonify, render_template, request
 
 from scanner import scan_repo, scan_fixture, regression_checks
 
-APP_VERSION = "0.2.2"
+APP_VERSION = "0.3.0"
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -123,6 +123,7 @@ def worker(scan_id: str, repo_url: str, branch: str | None, project_path: str | 
         if mode == "full" and not allow_full:
             raise RuntimeError("Full builds are disabled on this server. Set ALLOW_FULL_BUILDS=1 to enable them.")
 
+        npm_versions = ["10.9.9", "11.19.0"] if mode == "full" else ["bundled"]
         result = scan_repo(
             repo_url=repo_url,
             branch=branch or None,
@@ -131,6 +132,7 @@ def worker(scan_id: str, repo_url: str, branch: str | None, project_path: str | 
             work_root=WORK_DIR,
             runtime_root=RUNTIME_DIR,
             project_path=project_path,
+            npm_versions=npm_versions,
         )
         update_scan(
             scan_id,
