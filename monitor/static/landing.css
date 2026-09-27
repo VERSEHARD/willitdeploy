@@ -222,3 +222,21 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .pilot-success-note{padding:11px 12px;border:1px solid #d8e7dd;background:#f4faf6;color:#4f6b59;border-radius:6px;font-size:10px;margin:20px 0}
 @media(max-width:900px){.pilot-grid{grid-template-columns:1fr;gap:38px}.pilot-form-shell{position:static}.pilot-terms{grid-template-columns:1fr}.pilot-terms>div{border-right:0;border-bottom:1px solid var(--border)}.pilot-terms>div:last-child{border-bottom:0}}
 @media(max-width:640px){.pilot-main{padding:44px 0 70px}.pilot-copy h1{font-size:2.45rem}.pilot-form-shell{padding:20px}}
+
+.lp-buyer-table{margin-top:30px;border:1px solid var(--border);background:var(--surface)}
+.lp-buyer-row{display:grid;grid-template-columns:120px minmax(0,1fr) 110px;gap:20px;align-items:center;padding:18px 20px;border-bottom:1px solid var(--border);text-decoration:none;color:inherit}
+.lp-buyer-row:last-child{border-bottom:0}
+.lp-buyer-row:hover{background:#faf9f6}
+.lp-buyer-market{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9px;letter-spacing:.05em;color:#737873}
+.lp-buyer-row strong,.lp-buyer-row small{display:block}
+.lp-buyer-row strong{font-size:13px;font-weight:600;letter-spacing:-.015em}
+.lp-buyer-row small{font-size:10px;color:#818680;line-height:1.5;margin-top:4px}
+.lp-buyer-money{justify-self:end;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9px;color:var(--ok);border:1px solid #cce5d7;background:#f3faf6;border-radius:4px;padding:5px 7px}
+.lp-current-experiment{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:26px;align-items:center;margin-top:14px;padding:18px 20px;border:1px solid var(--border);background:#efeee9}
+.lp-current-experiment strong{display:block;font-size:13px;margin:5px 0}
+.lp-current-experiment p{font-size:10px;color:#777c77;line-height:1.5;margin:0;max-width:760px}
+@media(max-width:720px){
+  .lp-buyer-row{grid-template-columns:1fr;gap:7px}
+  .lp-buyer-money{justify-self:start}
+  .lp-current-experiment{grid-template-columns:1fr}
+}
