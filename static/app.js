@@ -3,7 +3,6 @@ const resultArea = $('#resultArea');
 const historyEl = $('#history');
 const logStore = new Map();
 const logModalEl = $('#logModal');
-const logModal = logModalEl ? new bootstrap.Modal(logModalEl) : null;
 
 function token() {
   const input = $('#tokenInput');
@@ -34,7 +33,10 @@ function badgeFor(status) {
 async function checkHealth() {
   const dot = $('#healthDot');
   try {
-    const r = await fetch('/api/health');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const r = await fetch('/api/health', {signal: controller.signal, cache: 'no-store'});
+    clearTimeout(timer);
     const h = await r.json();
     if (!r.ok) throw new Error('health check failed');
     dot.className = 'health-dot is-online';
@@ -135,17 +137,24 @@ function renderMatrix(matrix) {
 
 window.openLog = function(key) {
   const item = logStore.get(key);
-  if (!item || !logModal) return;
+  if (!item || !logModalEl) return;
   $('#logModalLabel').textContent = item.title;
   $('#logModalMeta').textContent = item.meta;
   $('#logModalText').textContent = item.text;
-  logModal.show();
+  if (typeof logModalEl.showModal === 'function') logModalEl.showModal();
+  else logModalEl.setAttribute('open', '');
 };
 
 document.addEventListener('click', (event) => {
   const button = event.target.closest('.wid-open-log');
-  if (!button) return;
-  window.openLog(button.dataset.logKey);
+  if (button) {
+    window.openLog(button.dataset.logKey);
+    return;
+  }
+  if (event.target && event.target.id === 'logModalClose' && logModalEl) {
+    if (typeof logModalEl.close === 'function') logModalEl.close();
+    else logModalEl.removeAttribute('open');
+  }
 });
 
 
