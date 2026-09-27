@@ -1062,7 +1062,16 @@ def public_proof():
         item["created_at_iso"] = iso(item["created_at"])
         proof_events.append(item)
 
-    latest = evidence["latest"]
+    history_by_target = {item["target"]: item for item in evidence["per_target"]}
+    latest = []
+    for item in evidence["latest"]:
+        enriched = dict(item)
+        historical = history_by_target.get(item["target"], {})
+        enriched["history_checks"] = historical.get("checks", 0)
+        enriched["history_pass_rate"] = historical.get("pass_rate")
+        enriched["history_stability_rate"] = historical.get("stability_rate")
+        latest.append(enriched)
+
     return {
         "lab_targets": len(latest),
         "lab_passed": sum(1 for r in latest if r.get("ok")),
