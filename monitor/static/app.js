@@ -48,11 +48,18 @@ function kindIcon(kind){return {price:'ti-currency-dollar',stock:'ti-package',ke
 function eventIcon(type){return {price_threshold:'ti-target-arrow',price_changed:'ti-arrows-exchange',stock_available:'ti-package-export',stock_unavailable:'ti-package-off',keyword_match:'ti-bell-check',keyword_lost:'ti-bell-off',content_changed:'ti-file-diff',baseline:'ti-camera',error:'ti-alert-triangle'}[type]||'ti-bolt'}
 function statusHtml(m){return '<span class="pp-status '+esc(m.health)+'">'+esc(m.health)+'</span>'}
 
-function setView(name){
-  $$('.pp-view').forEach(v=>v.classList.toggle('active',v.id==='view-'+name));
-  $$('.pp-nav-item').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
+function setView(name,{syncHash=true}={}){
+  const valid=['overview','monitors','activity','briefing','lab'];
+  if(!valid.includes(name)) name='overview';
+  $('.pp-view').forEach(v=>v.classList.toggle('active',v.id==='view-'+name));
+  $('.pp-nav-item').forEach(b=>{
+    const active=b.dataset.view===name;
+    b.classList.toggle('active',active);
+    if(active) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
+  });
   const titles={overview:'Overview',monitors:'Monitors',activity:'Activity',briefing:'Briefing',lab:'Reliability lab'};
   $('#viewTitle').textContent=titles[name]||'PricePulse';
+  if(syncHash && location.hash!=='#'+name) history.replaceState(null,'','#'+name);
   if(innerWidth<720) window.scrollTo({top:0,behavior:'smooth'});
 }
 $$('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
@@ -269,3 +276,27 @@ $('#refreshBtn').addEventListener('click',()=>{health();loadAll()});
 health();loadAll();setInterval(loadAll,15000);
 
 fetch(BASE+'/api/product-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:'workspace_open',meta:{source:'direct'}}),keepalive:true}).catch(()=>{});
+
+function typingTarget(el){
+  return !!el && (el.matches('input,textarea,select,[contenteditable="true"]') || el.closest('input,textarea,select,[contenteditable="true"]'));
+}
+document.addEventListener('keydown',e=>{
+  if(e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || typingTarget(e.target)) return;
+  if(e.key.toLowerCase()==='n'){
+    e.preventDefault();
+    bootstrap.Modal.getOrCreateInstance($('#newMonitor')).show();
+  }else if(e.key==='/'){
+    e.preventDefault();
+    setView('monitors');
+    setTimeout(()=>$('#monitorSearch')?.focus(),0);
+  }else if(e.key.toLowerCase()==='r'){
+    e.preventDefault();
+    health();loadAll();
+  }
+});
+const initialView=location.hash.replace('#','');
+if(['overview','monitors','activity','briefing','lab'].includes(initialView)) setView(initialView,{syncHash:false});
+window.addEventListener('hashchange',()=>{
+  const view=location.hash.replace('#','');
+  if(['overview','monitors','activity','briefing','lab'].includes(view)) setView(view,{syncHash:false});
+});
