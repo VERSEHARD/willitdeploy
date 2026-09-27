@@ -95,26 +95,42 @@ function renderMatrix(matrix) {
   if (!matrix) return '';
   if (!matrix.length) return '<div class="alert alert-secondary">No build matrix was run for this repository.</div>';
 
-  return '<div class="mb-3"><div class="d-flex justify-content-between align-items-center mb-2"><div class="fw-semibold">Node × npm results</div><div class="small text-secondary">' + matrix.length + ' isolated toolchains</div></div><div class="row g-3">' + matrix.map((r, i) => {
+  const cards = matrix.map((r, i) => {
     const logs = (r.status === 'fail_install' || r.status === 'fail_toolchain')
       ? r.install.output
       : (r.status === 'fail_build' && r.build ? r.build.output : (r.status === 'unsupported_package_manager' ? r.install.output : ''));
     const sigs = (r.failure_signatures || []).map(s => '<li>' + esc(s.explanation) + '</li>').join('');
     const npmLabel = r.npm_requested || r.npm_version || 'bundled';
-    const key = 'widlog-' + i + '-' + r.node_major + '-' + String(npmLabel).replace(/[^a-zA-Z0-9]/g,'');
-    if (logs) logStore.set(key, {
-      title: 'Node ' + r.node_major + ' · npm ' + npmLabel,
-      meta: r.node_version + ' · actual npm ' + (r.npm_version || 'unknown'),
-      text: logs
-    });
-    return '<div class="col-12 col-md-6 col-xxl-4"><div class="card matrix-card border-secondary-subtle h-100"><div class="card-body d-flex flex-column">' +
-      '<div class="d-flex justify-content-between align-items-start gap-2"><div><strong>Node ' + r.node_major + ' · npm ' + esc(npmLabel) + '</strong><div class="small text-secondary mt-1">' + esc(r.node_version) + '<br>actual npm ' + esc(r.npm_version || '') + '</div></div>' + badgeFor(r.status) + '</div>' +
+    const key = 'widlog-' + i + '-' + r.node_major + '-' + String(npmLabel).replace(/[^a-zA-Z0-9]/g, '');
+
+    if (logs) {
+      logStore.set(key, {
+        title: 'Node ' + r.node_major + ' · npm ' + npmLabel,
+        meta: r.node_version + ' · actual npm ' + (r.npm_version || 'unknown'),
+        text: logs
+      });
+    }
+
+    const logButton = logs
+      ? '<div class="mt-auto pt-3"><button class="btn btn-sm btn-outline-secondary wid-open-log" type="button" data-log-key="' + esc(key) + '">Open log</button></div>'
+      : '';
+
+    return '<div class="col-12 col-md-6 col-xxl-4">' +
+      '<div class="card matrix-card border-secondary-subtle h-100"><div class="card-body d-flex flex-column">' +
+      '<div class="d-flex justify-content-between align-items-start gap-2"><div>' +
+      '<strong>Node ' + r.node_major + ' · npm ' + esc(npmLabel) + '</strong>' +
+      '<div class="small text-secondary mt-1">' + esc(r.node_version) + '<br>actual npm ' + esc(r.npm_version || '') + '</div>' +
+      '</div>' + badgeFor(r.status) + '</div>' +
       '<div class="small mt-3">install: ' + (r.install.code === 0 ? '✓' : '✕') + ' · ' + r.install.duration_seconds + 's</div>' +
       (r.build ? '<div class="small">build: ' + (r.build.code === 0 ? '✓' : '✕') + ' · ' + r.build.duration_seconds + 's</div>' : '<div class="small text-secondary">build: not run</div>') +
       (sigs ? '<ul class="small mt-3 mb-0 ps-3">' + sigs + '</ul>' : '<div class="small text-secondary mt-3">No failure signature.</div>') +
-      (logs ? '<div class="mt-auto pt-3"><button class="btn btn-sm btn-outline-secondary" type="button" onclick="openLog(\\'' + key + '\\')">Open log</button></div>' : '') +
+      logButton +
       '</div></div></div>';
-  }).join('') + '</div></div>';
+  }).join('');
+
+  return '<div class="mb-3"><div class="d-flex justify-content-between align-items-center mb-2">' +
+    '<div class="fw-semibold">Node × npm results</div><div class="small text-secondary">' + matrix.length + ' isolated toolchains</div>' +
+    '</div><div class="row g-3">' + cards + '</div></div>';
 }
 
 window.openLog = function(key) {
@@ -125,6 +141,12 @@ window.openLog = function(key) {
   $('#logModalText').textContent = item.text;
   logModal.show();
 };
+
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('.wid-open-log');
+  if (!button) return;
+  window.openLog(button.dataset.logKey);
+});
 
 
 function renderRegression(checks) {
@@ -154,7 +176,7 @@ function renderResult(data) {
     return;
   }
   const r = data.result;
-  resultArea.innerHTML = `<div class="card result-summary mb-3"><div class="card-body"><div class="fw-semibold">${esc(r.summary)}</div><div class="text-secondary small mt-1">${esc(r.repo)} · ${r.repo_size_mb} MB shallow clone${r.project_path ? ' · project ' + esc(r.project_path) : ''}</div></div></div>${renderStatic(r.static)}${renderMatrix(r.matrix)}<div class="card"><div class="card-body py-3"><div class="text-secondary small">Experiment ID</div><code>${esc(data.id)}</code></div></div>`;
+  resultArea.innerHTML = `<div class="card result-summary mb-3"><div class="card-body"><div class="fw-semibold">${esc(r.summary)}</div><div class="text-secondary small mt-1">${esc(r.repo)} · ${r.repo_size_mb} MB shallow clone${r.project_path ? ' · project ' + esc(r.project_path) : ''}</div></div></div>${renderDiagnosis(r.diagnosis)}${renderStatic(r.static)}${renderMatrix(r.matrix)}<div class="card"><div class="card-body py-3"><div class="text-secondary small">Experiment ID</div><code>${esc(data.id)}</code></div></div>`;
 }
 
 window.loadScan = async function(id) {
