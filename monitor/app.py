@@ -1127,7 +1127,7 @@ def seed_demo_monitor():
                 "name": "Buyer-backed · Vinted fast-fashion feed",
                 "url": "https://www.vinted.co.uk/catalog/1223-aviatoru-tipa-jakas/brand/14803-vintage-dressing",
                 "kind": "listing_feed",
-                "must_contain": "Y2K",
+                "must_contain": None,
                 "max_price": None,
                 "interval_min": 15,
             },
@@ -1144,6 +1144,15 @@ def seed_demo_monitor():
         for demo in demos:
             exists = conn.execute("SELECT id FROM monitors WHERE name=?", (demo["name"],)).fetchone()
             if exists:
+                conn.execute(
+                    """UPDATE monitors
+                       SET url=?,must_contain=?,max_price=?,interval_min=?,kind=?,enabled=1,next_check=?
+                       WHERE id=?""",
+                    (
+                        demo["url"],demo["must_contain"],demo["max_price"],demo["interval_min"],
+                        demo["kind"],now_ts(),exists["id"]
+                    ),
+                )
                 continue
             conn.execute(
                 """INSERT INTO monitors(
