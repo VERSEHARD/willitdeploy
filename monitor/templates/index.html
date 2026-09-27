@@ -3,406 +3,259 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PricePulse — Monitoring workspace</title>\n  <link rel="icon" href="/pricepulse/static/favicon.svg" type="image/svg+xml">
-  <meta name="description" content="Monitor prices, restocks, listings and competitor pages. Keep dated evidence when something changes.">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/css/tabler.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.34.1/dist/tabler-icons.min.css">
+  <title>PricePulse — Watchlist</title>
+  <link rel="icon" href="/pricepulse/static/favicon.svg" type="image/svg+xml">
+  <meta name="description" content="A practical watchlist for prices, listings, availability and web changes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/css/tabler.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.34.1/dist/tabler-icons.min.css">
   <link rel="stylesheet" href="/pricepulse/static/app.css?v={{ version }}">
 </head>
 <body>
-<div class="pp-shell">
+<div class="pp-app">
   <aside class="pp-sidebar">
-    <a class="pp-brand" href="/pricepulse/">
+    <a class="pp-brand" href="/pricepulse/" aria-label="PricePulse home">
       <span class="pp-logo"><i class="ti ti-wave-sine"></i></span>
-      <span>
-        <strong>PricePulse</strong>
-        <small>monitoring workspace</small>
-      </span>
+      <span><strong>PricePulse</strong><small>workspace</small></span>
     </a>
 
-    <nav class="pp-nav" aria-label="Primary">
-      <button class="pp-nav-item active" data-view="overview"><i class="ti ti-layout-dashboard"></i><span>Overview</span></button>
-      <button class="pp-nav-item" data-view="monitors"><i class="ti ti-radar-2"></i><span>Monitors</span><span id="navMonitorCount" class="pp-nav-count">0</span></button>
+    <nav class="pp-nav" aria-label="Workspace">
+      <button class="pp-nav-item active" data-view="watchlist"><i class="ti ti-list-check"></i><span>Watchlist</span><b id="navMonitorCount">0</b></button>
       <button class="pp-nav-item" data-view="activity"><i class="ti ti-bolt"></i><span>Activity</span></button>
-      <button class="pp-nav-item" data-view="briefing"><i class="ti ti-report-analytics"></i><span>Briefing</span></button>
+      <button class="pp-nav-item" data-view="briefing"><i class="ti ti-report"></i><span>Briefing</span></button>
       <button class="pp-nav-item" data-view="lab"><i class="ti ti-flask-2"></i><span>Reliability lab</span></button>
     </nav>
 
-    <div class="pp-sidebar-bottom">
-      <div class="pp-plan">
-        <span class="badge pp-badge-accent">EARLY ACCESS</span>
-        <strong>Managed monitoring pilot</strong>
-        <span>Up to 5 public URLs · 7 days</span>
-        <a href="/pricepulse/pilot" class="btn btn-sm btn-primary w-100">Start for $5</a>
-      </div>
-      <div class="pp-version">PricePulse v{{ version }}</div>
+    <div class="pp-sidebar-meta">
+      <div class="pp-engine-line"><span id="healthDot" class="pp-health-dot"></span><span id="health">Connecting…</span></div>
+      <div><span>Active</span><strong id="sideActive">0</strong></div>
+      <div><span>Success</span><strong id="sideSuccess">—</strong></div>
+      <a href="/pricepulse/pilot">Managed pilot · $5</a>
+      <small>v{{ version }}</small>
     </div>
   </aside>
 
   <main class="pp-main">
     <header class="pp-topbar">
       <div>
-        <div class="pp-eyebrow">PRICEPULSE / WORKSPACE</div>
-        <h1 id="viewTitle">Overview</h1>
+        <span class="pp-overline">PRICEPULSE</span>
+        <h1 id="viewTitle">Watchlist</h1>
       </div>
       <div class="pp-top-actions">
-        <div class="pp-health">
-          <span id="healthDot" class="pp-health-dot"></span>
-          <span id="health" aria-live="polite">Checking engine…</span>
-        </div>
-        <button class="btn btn-ghost-secondary btn-icon" id="refreshBtn" title="Refresh">
-          <i class="ti ti-refresh"></i>
-        </button>
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newMonitor">
-          <i class="ti ti-plus me-1"></i> New monitor
-        </button>
+        <button class="btn btn-outline-secondary" id="refreshBtn"><i class="ti ti-refresh me-1"></i>Refresh</button>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newMonitor"><i class="ti ti-plus me-1"></i>Add monitor</button>
       </div>
     </header>
 
-    <section class="pp-content">
-      <div class="pp-view active" id="view-overview">
-        <div class="pp-metrics">
-          <article class="pp-metric-card">
-            <div class="pp-metric-icon"><i class="ti ti-radar"></i></div>
-            <div><span>Active monitors</span><strong id="metricActive">0</strong><small id="metricMonitorsSub">0 total</small></div>
-          </article>
-          <article class="pp-metric-card">
-            <div class="pp-metric-icon"><i class="ti ti-shield-check"></i></div>
-            <div><span>Check success</span><strong id="metricSuccess">—</strong><small id="metricChecksSub">0 checks</small></div>
-          </article>
-          <article class="pp-metric-card">
-            <div class="pp-metric-icon"><i class="ti ti-bolt"></i></div>
-            <div><span>Signals · 24h</span><strong id="metricSignals">0</strong><small>actionable changes</small></div>
-          </article>
-          <article class="pp-metric-card">
-            <div class="pp-metric-icon"><i class="ti ti-clock-bolt"></i></div>
-            <div><span>Average fetch</span><strong id="metricLatency">—</strong><small>network + parse</small></div>
-          </article>
+    <section class="pp-view active" id="view-watchlist">
+      <div class="pp-watch-toolbar">
+        <div class="pp-search">
+          <i class="ti ti-search"></i>
+          <input id="monitorSearch" type="search" placeholder="Search name, domain or rule">
         </div>
+        <div class="pp-filter-tabs" role="tablist" aria-label="Monitor filter">
+          <button class="active" data-filter="all">All</button>
+          <button data-filter="healthy">Healthy</button>
+          <button data-filter="error">Needs attention</button>
+          <button data-filter="listing_feed">Listing feeds</button>
+        </div>
+        <a class="pp-text-action" href="/pricepulse/api/export.csv"><i class="ti ti-download"></i>Export</a>
+      </div>
 
-        <div class="row g-4">
-          <div class="col-12 col-xl-8">
-            <div class="pp-panel">
-              <div class="pp-panel-head">
-                <div><span class="pp-panel-kicker">WATCHLIST</span><h3>Live monitors</h3></div>
-                <button class="btn btn-sm btn-ghost-secondary" data-view-jump="monitors">View all <i class="ti ti-arrow-right ms-1"></i></button>
-              </div>
-              <div class="table-responsive">
-                <table class="table table-vcenter pp-table mb-0">
-                  <thead><tr><th>Monitor</th><th>Signal</th><th>Last check</th><th>Health</th></tr></thead>
-                  <tbody id="overviewMonitorRows"><tr><td colspan="4" class="text-secondary">Loading monitors…</td></tr></tbody>
-                </table>
-              </div>
-            </div>
+      <div class="pp-watch-shell">
+        <section class="pp-watch-column">
+          <div class="pp-list-head">
+            <span>MONITOR</span><span>LAST VALUE</span><span>CHECKED</span>
           </div>
+          <div id="watchRows" class="pp-watch-rows">
+            <div class="pp-empty">Loading watchlist…</div>
+          </div>
+        </section>
 
-          <div class="col-12 col-xl-4">
-            <div class="pp-panel h-100">
-              <div class="pp-panel-head">
-                <div><span class="pp-panel-kicker">LATEST</span><h3>Signal feed</h3></div>
-                <button class="btn btn-sm btn-ghost-secondary" data-view-jump="activity">Activity</button>
-              </div>
-              <div id="overviewEvents" class="pp-feed">
-                <div class="pp-empty">No signals yet.</div>
-              </div>
-            </div>
+        <aside class="pp-inspector" id="inspector">
+          <div class="pp-inspector-empty">
+            <i class="ti ti-pointer"></i>
+            <strong>Select a monitor</strong>
+            <span>Its current state, rule, evidence and recent history will appear here.</span>
           </div>
+        </aside>
+      </div>
+    </section>
 
-          <div class="col-12">
-            <div class="pp-proof-strip">
-              <div class="pp-proof-copy">
-                <span class="pp-panel-kicker">LIVE PROOF</span>
-                <h3>Production checks from real public pages.</h3>
-                <p id="proofText">Loading the most recent external fetch result…</p>
-              </div>
-              <div class="pp-proof-stat"><span>Reliability lab</span><strong id="proofPassRate">—</strong><small id="proofRunTime">waiting for first run</small></div>
-              <button class="btn btn-outline-secondary" data-view-jump="lab">Open lab</button>
-            </div>
-          </div>
+    <section class="pp-view" id="view-activity">
+      <div class="pp-section-head">
+        <div><span class="pp-overline">EVENT LOG</span><h2>Activity</h2><p>Signals and failures in chronological order.</p></div>
+        <select id="activityFilter" class="form-select">
+          <option value="all">All events</option>
+          <option value="new_listing">New listings</option>
+          <option value="price_changed">Price changes</option>
+          <option value="stock_available">Restocks</option>
+          <option value="error">Errors</option>
+        </select>
+      </div>
+      <div id="activityRows" class="pp-activity-table"><div class="pp-empty">No activity yet.</div></div>
+    </section>
+
+    <section class="pp-view" id="view-briefing">
+      <div class="pp-section-head">
+        <div><span class="pp-overline">LAST 7 DAYS</span><h2>Briefing</h2><p>A compact report of what changed instead of a stream of notifications.</p></div>
+      </div>
+      <div class="pp-brief-top">
+        <div><span>Total signals</span><strong id="briefTotal">0</strong></div>
+        <div><span>Active monitors</span><strong id="briefActive">0</strong></div>
+        <div><span>Check success</span><strong id="briefSuccess">—</strong></div>
+        <div><span>Checks run</span><strong id="briefChecks">0</strong></div>
+      </div>
+      <div class="pp-two-col">
+        <div class="pp-section-block"><div class="pp-block-head"><strong>Signal mix</strong></div><div id="briefBreakdown"></div></div>
+        <div class="pp-section-block"><div class="pp-block-head"><strong>Most active monitors</strong></div><div id="briefTop"></div></div>
+      </div>
+      <div class="pp-section-block pp-mt"><div class="pp-block-head"><strong>Timeline</strong></div><div id="briefItems"></div></div>
+    </section>
+
+    <section class="pp-view" id="view-lab">
+      <div class="pp-section-head">
+        <div><span class="pp-overline">BUYER-BACKED EXPERIMENTS</span><h2>Reliability lab</h2><p>We run the engine against targets tied to real buyer requests and keep failures visible.</p></div>
+        <span class="pp-badge">automatic</span>
+      </div>
+
+      <div class="pp-lab-metrics">
+        <div><span>Current reachability</span><strong id="labPassRate">—</strong><small id="labPassRolling">rolling —</small></div>
+        <div><span>Noise classification</span><strong id="labStability">—</strong><small id="labStabilityRolling">rolling —</small></div>
+        <div><span>Evidence checks</span><strong id="labSamples">0</strong><small id="labTargets">0 targets</small></div>
+        <div><span>Last run</span><strong id="labLastRun">—</strong><small>production</small></div>
+      </div>
+
+      <div class="pp-section-block">
+        <div class="pp-block-head"><strong>Current target run</strong><span>Failures stay red. We do not convert them into fake “success.”</span></div>
+        <div id="labRows" class="pp-lab-table"><div class="pp-empty">Lab is starting…</div></div>
+      </div>
+
+      <div class="pp-section-block pp-mt">
+        <div class="pp-block-head"><strong>What buyers are actually hiring for</strong><span>External job evidence, not invented use cases.</span></div>
+        <div class="pp-demand-list">
+          <a class="pp-demand-row" href="https://www.upwork.com/freelance-jobs/apply/Vinted-Market-Researcher-Find-Viral-Unbranded-Y2K-Fast-Fashion-Items-Retail_~022095799390085697287/" target="_blank" rel="noopener">
+            <span class="pp-demand-logo">V</span>
+            <span><strong>Vinted UK · Y2K / Japan Style velocity tracking</strong><small>Job shows 1 hire · track specific listings 12–24h, views/favourites and time-to-sold.</small></span>
+            <b>PAID BUYER SIGNAL</b>
+          </a>
+          <a class="pp-demand-row" href="https://www.upwork.com/freelance-jobs/apply/Facebook-Marketplace-Deal-Finder-Furniture-Reselling-Opportunities_~022095717884871588739/" target="_blank" rel="noopener">
+            <span class="pp-demand-logo">F</span>
+            <span><strong>Facebook Marketplace · underpriced furniture</strong><small>$500 job · shows 1 hire · buyer wants constant new-listing monitoring and first-to-message speed.</small></span>
+            <b>AUTH REQUIRED</b>
+          </a>
+          <a class="pp-demand-row" href="https://www.upwork.com/freelance-jobs/apply/Automate-price-monitoring_~022100609442313515937/" target="_blank" rel="noopener">
+            <span class="pp-demand-logo">P</span>
+            <span><strong>Multi-store price drops</strong><small>$150 job · shows 1 hire · product watchlist with Telegram/WhatsApp/email alerts.</small></span>
+            <b>PAID BUYER SIGNAL</b>
+          </a>
+          <a class="pp-demand-row" href="https://www.upwork.com/freelance-jobs/apply/eBay-Monitoring-Bot-with-Telegram-Alerts-Pok-mon-One-Piece-TCG-Python-eBay-Browse-API_~022080398778695250507/" target="_blank" rel="noopener">
+            <span class="pp-demand-logo">e</span>
+            <span><strong>eBay UK · Pokémon / One Piece deal detection</strong><small>Buyer wants 10-minute polling, active-market baselines, 25–30% discount alerts and Telegram.</small></span>
+            <b>API ADAPTER</b>
+          </a>
         </div>
       </div>
 
-      <div class="pp-view" id="view-monitors">
-        <div class="pp-section-head">
-          <div><span class="pp-panel-kicker">WATCHLIST</span><h2>Monitors</h2><p>Every URL, rule, schedule and health signal in one place.</p></div>
-          <div class="d-flex gap-2">
-            <a class="btn btn-outline-secondary" href="/pricepulse/api/export.csv"><i class="ti ti-download me-1"></i>Export CSV</a>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newMonitor"><i class="ti ti-plus me-1"></i>New monitor</button>
-          </div>
-        </div>
-        <div class="pp-panel">
-          <div class="pp-toolbar">
-            <div class="input-icon">
-              <span class="input-icon-addon"><i class="ti ti-search"></i></span>
-              <input id="monitorSearch" class="form-control" placeholder="Search monitors or URLs">
-            </div>
-            <select id="healthFilter" class="form-select">
-              <option value="all">All health</option>
-              <option value="healthy">Healthy</option>
-              <option value="error">Error</option>
-              <option value="pending">Pending</option>
-            </select>
-          </div>
-          <div class="table-responsive">
-            <table class="table table-vcenter pp-table mb-0">
-              <thead><tr><th>Name</th><th>Rule</th><th>Last value</th><th>Schedule</th><th>Health</th><th></th></tr></thead>
-              <tbody id="monitorRows"><tr><td colspan="6" class="text-secondary">Loading…</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <div class="pp-view" id="view-activity">
-        <div class="pp-section-head">
-          <div><span class="pp-panel-kicker">EVENT STREAM</span><h2>Activity</h2><p>Every baseline, threshold, change and error is kept as evidence.</p></div>
-        </div>
-        <div class="pp-panel">
-          <div id="activityRows" class="pp-activity-list"><div class="pp-empty">No activity yet.</div></div>
-        </div>
-      </div>
-
-      <div class="pp-view" id="view-briefing">
-        <div class="pp-section-head">
-          <div><span class="pp-panel-kicker">7-DAY INTELLIGENCE</span><h2>Briefing</h2><p>One digest of what changed across the watchlist, so alerts do not become another inbox.</p></div>
-        </div>
-        <div class="pp-brief-grid">
-          <div class="pp-panel pp-brief-hero">
-            <div><span class="pp-panel-kicker">THIS WEEK</span><h3 id="briefHeadline">No signals recorded yet.</h3><p id="briefSub">PricePulse will summarize meaningful activity here.</p></div>
-            <div class="pp-brief-number"><strong id="briefTotal">0</strong><span>signals</span></div>
-          </div>
-          <div class="pp-panel">
-            <div class="pp-panel-head"><div><span class="pp-panel-kicker">BREAKDOWN</span><h3>Signal types</h3></div></div>
-            <div id="briefBreakdown" class="pp-breakdown"></div>
-          </div>
-          <div class="pp-panel">
-            <div class="pp-panel-head"><div><span class="pp-panel-kicker">HOTTEST</span><h3>Most active monitors</h3></div></div>
-            <div id="briefTop" class="pp-breakdown"></div>
-          </div>
-          <div class="pp-panel pp-span-2">
-            <div class="pp-panel-head"><div><span class="pp-panel-kicker">RECENT</span><h3>Briefing timeline</h3></div></div>
-            <div id="briefItems" class="pp-activity-list"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="pp-view" id="view-lab">
-        <div class="pp-section-head">
-          <div><span class="pp-panel-kicker">REAL-WORLD QA</span><h2>Reliability lab</h2><p>The engine checks live production pages plus a deliberately dynamic control so it must detect both stable and noisy targets.</p></div>
-          <span class="badge pp-badge-accent">runs automatically</span>
-        </div>
-
-        <div class="pp-lab-summary">
-          <div><span>Current reachability</span><strong id="labPassRate">—</strong><small id="labPassRolling">rolling —</small></div>
-          <div><span>Noise classification</span><strong id="labStability">—</strong><small id="labStabilityRolling">rolling —</small></div>
-          <div><span>Evidence checks</span><strong id="labSamples">0</strong><small id="labTargets">0 targets</small></div>
-          <div><span>Last run</span><strong id="labLastRun">—</strong><small>production fetches</small></div>
-        </div>
-
-        <div id="labCards" class="row g-4"></div>
-
-        <div class="pp-panel mt-4">
-          <div class="pp-panel-head">
-            <div><span class="pp-panel-kicker">WILLINGNESS-TO-PAY EXPERIMENT</span><h3>Real purchase intent · last 7 days</h3></div>
-            <span class="badge pp-badge-accent">no fake revenue</span>
-          </div>
-          <div class="pp-money-grid">
-            <div><span>Landing views</span><strong id="moneyViews">0</strong></div>
-            <div><span>$5 pilot clicks</span><strong id="moneyClicks">0</strong></div>
-            <div><span>CTA conversion</span><strong id="moneyCtr">—</strong></div>
-            <div><span>Pilot submissions</span><strong id="moneyProbes">0</strong></div>
-          </div>
-          <div class="pp-money-note">This is the commercial test: visits → $5 pilot intent → submitted request → successful managed setup → actual payment. We only count money after it is genuinely received.</div>
-        </div>
-
-        <div class="pp-panel mt-4">
-          <div class="pp-panel-head">
-            <div><span class="pp-panel-kicker">ENGINEERING STANDARD</span><h3>What makes a monitor acceptable</h3></div>
-          </div>
-          <div class="pp-thesis-grid">
-            <div><i class="ti ti-clock-24"></i><strong>Continuous execution</strong><span>The value is checking while the customer is offline, not explaining an error after it happens.</span></div>
-            <div><i class="ti ti-filter-check"></i><strong>Signal over noise</strong><span>Rules and scoped content should suppress meaningless page churn.</span></div>
-            <div><i class="ti ti-history"></i><strong>Evidence history</strong><span>Every check keeps a dated snapshot so the user can prove what changed and when.</span></div>
-            <div><i class="ti ti-plug-connected"></i><strong>Actionable delivery</strong><span>Webhooks make the result usable in Slack, Discord, automations and internal workflows.</span></div>
-          </div>
+      <div class="pp-section-block pp-mt">
+        <div class="pp-block-head"><strong>Commercial experiment · 7 days</strong><span>No projected revenue.</span></div>
+        <div class="pp-commerce">
+          <div><span>Landing views</span><strong id="moneyViews">0</strong></div>
+          <div><span>$5 pilot clicks</span><strong id="moneyClicks">0</strong></div>
+          <div><span>CTA conversion</span><strong id="moneyCtr">—</strong></div>
+          <div><span>Pilot submissions</span><strong id="moneyProbes">0</strong></div>
         </div>
       </div>
     </section>
   </main>
 </div>
 
-<div id="ppToastStack" class="pp-toast-stack" aria-live="polite" aria-atomic="true"></div>
+<div id="ppToastStack" class="pp-toast-stack" aria-live="polite"></div>
 
-<div class="modal modal-blur fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmTitle">
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmTitle">
   <div class="modal-dialog modal-sm modal-dialog-centered">
-    <div class="modal-content pp-modal">
-      <div class="modal-header">
-        <h3 class="modal-title" id="confirmTitle">Confirm action</h3>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
+    <div class="modal-content">
+      <div class="modal-header"><h3 class="modal-title" id="confirmTitle">Confirm</h3><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
       <div class="modal-body"><p id="confirmBody" class="mb-0 text-secondary small"></p></div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-link" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-danger" id="confirmActionBtn">Continue</button>
-      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-link" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-danger" id="confirmActionBtn">Continue</button></div>
     </div>
   </div>
 </div>
 
-<div class="modal modal-blur fade" id="newMonitor" tabindex="-1">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
-    <div class="modal-content pp-modal">
+<div class="modal fade" id="newMonitor" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
       <form id="monitorForm">
         <div class="modal-header">
-          <div>
-            <div class="pp-panel-kicker">NEW MONITOR</div>
-            <h3 class="modal-title">What should we keep checking?</h3>
-          </div>
+          <div><span class="pp-overline">NEW MONITOR</span><h3 class="modal-title">What should PricePulse watch?</h3></div>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
-
         <div class="modal-body">
-          <div class="pp-step">
-            <div class="pp-step-number">1</div>
-            <div class="pp-step-body">
-              <h4>Page</h4>
+          <div class="pp-form-section">
+            <span class="pp-form-step">1</span>
+            <div>
               <label class="form-label" for="url">Public URL</label>
-              <div class="input-group">
-                <input id="url" type="url" class="form-control" placeholder="https://example.com/pricing" required>
-                <button id="probeBtn" type="button" class="btn btn-outline-secondary">Test page</button>
-              </div>
-              <div class="row g-3 mt-0">
-                <div class="col-12">
-                  <label class="form-label" for="name">Monitor name <span>optional</span></label>
-                  <input id="name" class="form-control" placeholder="Competitor pricing">
-                </div>
-              </div>
+              <div class="input-group"><input id="url" type="url" class="form-control" placeholder="https://..." required><button id="probeBtn" type="button" class="btn btn-outline-secondary">Test URL</button></div>
               <div id="probeResult" class="pp-probe d-none" aria-live="polite"></div>
+              <label class="form-label mt-3" for="name">Name <span class="text-secondary">optional</span></label>
+              <input id="name" class="form-control" placeholder="Vinted Y2K feed">
             </div>
           </div>
 
-          <div class="pp-step">
-            <div class="pp-step-number">2</div>
-            <div class="pp-step-body">
-              <h4>What matters?</h4>
-              <input id="kind" type="hidden" value="price">
-              <div class="pp-kind-grid" role="radiogroup" aria-label="Monitor type">
-                <button type="button" class="pp-kind-option active" data-kind="price" role="radio" aria-checked="true">
-                  <i class="ti ti-currency-dollar"></i><span><strong>Price</strong><small>Price moves or hits a target</small></span>
-                </button>
-                <button type="button" class="pp-kind-option" data-kind="stock" role="radio" aria-checked="false">
-                  <i class="ti ti-package"></i><span><strong>Availability</strong><small>Something comes back in stock</small></span>
-                </button>
-                <button type="button" class="pp-kind-option" data-kind="keyword" role="radio" aria-checked="false">
-                  <i class="ti ti-text-scan-2"></i><span><strong>Text</strong><small>A phrase appears or disappears</small></span>
-                </button>
-                <button type="button" class="pp-kind-option" data-kind="content" role="radio" aria-checked="false">
-                  <i class="ti ti-file-diff"></i><span><strong>Page change</strong><small>Selected content changes</small></span>
-                </button>
+          <div class="pp-form-section">
+            <span class="pp-form-step">2</span>
+            <div>
+              <label class="form-label">Monitor type</label>
+              <input id="kind" type="hidden" value="listing_feed">
+              <div class="pp-kind-grid">
+                <button type="button" class="pp-kind-option active" data-kind="listing_feed"><i class="ti ti-list-search"></i><span><strong>New listings</strong><small>Detect newly appearing items</small></span></button>
+                <button type="button" class="pp-kind-option" data-kind="price"><i class="ti ti-currency-dollar"></i><span><strong>Price</strong><small>Price moves or target</small></span></button>
+                <button type="button" class="pp-kind-option" data-kind="stock"><i class="ti ti-package"></i><span><strong>Availability</strong><small>Restock / sold state</small></span></button>
+                <button type="button" class="pp-kind-option" data-kind="keyword"><i class="ti ti-text-scan-2"></i><span><strong>Text</strong><small>Phrase appears / disappears</small></span></button>
+                <button type="button" class="pp-kind-option" data-kind="content"><i class="ti ti-file-diff"></i><span><strong>Page change</strong><small>Track selected content</small></span></button>
               </div>
             </div>
           </div>
 
-          <div class="pp-step">
-            <div class="pp-step-number">3</div>
-            <div class="pp-step-body">
-              <h4>Rule & schedule</h4>
-
-              <div id="rulePrice" class="pp-rule-panel">
+          <div class="pp-form-section">
+            <span class="pp-form-step">3</span>
+            <div>
+              <div id="ruleListing" class="pp-rule-panel">
                 <div class="row g-3">
-                  <div class="col-md-7">
-                    <label class="form-label" for="maxPrice">Alert when price is at or below <span>optional</span></label>
-                    <input id="maxPrice" type="number" step="0.01" class="form-control" placeholder="150">
-                  </div>
-                  <div class="col-md-5">
-                    <label class="form-label" for="currency">Currency</label>
-                    <select id="currency" class="form-select">
-                      <option value="">Detect automatically</option><option>USD</option><option>GBP</option><option>EUR</option><option>INR</option>
-                    </select>
-                  </div>
+                  <div class="col-md-7"><label class="form-label" for="listingKeyword">Listing title contains <span class="text-secondary">optional</span></label><input id="listingKeyword" class="form-control" placeholder="Y2K"></div>
+                  <div class="col-md-5"><label class="form-label" for="listingMaxPrice">Maximum price <span class="text-secondary">optional</span></label><input id="listingMaxPrice" type="number" step="0.01" class="form-control" placeholder="50"></div>
                 </div>
-                <div class="pp-field-help">Leave the target blank to record every detected price change.</div>
+                <p class="pp-help">PricePulse builds a baseline of listing IDs, then alerts only when a new matching item appears.</p>
+              </div>
+              <div id="rulePrice" class="pp-rule-panel d-none"><div class="row g-3"><div class="col-md-7"><label class="form-label" for="maxPrice">Alert at or below <span class="text-secondary">optional</span></label><input id="maxPrice" type="number" step="0.01" class="form-control" placeholder="150"></div><div class="col-md-5"><label class="form-label" for="currency">Currency</label><select id="currency" class="form-select"><option value="">Auto</option><option>USD</option><option>GBP</option><option>EUR</option><option>INR</option></select></div></div></div>
+              <div id="ruleText" class="pp-rule-panel d-none"><label class="form-label" for="mustContain" id="mustContainLabel">Text to watch</label><input id="mustContain" class="form-control" placeholder="Sold"><p class="pp-help" id="mustContainHelp">Alert when this phrase appears or disappears.</p></div>
+              <div id="ruleContent" class="pp-rule-panel d-none"><p class="pp-help">Compare the selected content against its previous version and keep the diff.</p></div>
+
+              <div class="row g-3 mt-2">
+                <div class="col-md-5"><label class="form-label" for="interval">Check every</label><select id="interval" class="form-select"><option value="1">1 minute</option><option value="5">5 minutes</option><option value="15" selected>15 minutes</option><option value="60">1 hour</option><option value="360">6 hours</option><option value="1440">Daily</option></select></div>
               </div>
 
-              <div id="ruleText" class="pp-rule-panel d-none">
-                <label class="form-label" for="mustContain" id="mustContainLabel">Text to watch for</label>
-                <input id="mustContain" class="form-control" placeholder="In stock">
-                <div class="pp-field-help" id="mustContainHelp">We alert when this text appears or disappears.</div>
-              </div>
-
-              <div id="ruleContent" class="pp-rule-panel d-none">
-                <div class="pp-inline-note"><i class="ti ti-file-diff"></i><span>PricePulse will compare the selected page content with the previous version and store a dated diff when it changes.</span></div>
-              </div>
-
-              <div class="row g-3 mt-1">
-                <div class="col-md-5">
-                  <label class="form-label" for="interval">Check every</label>
-                  <select id="interval" class="form-select">
-                    <option value="1">1 minute</option>
-                    <option value="5" selected>5 minutes</option>
-                    <option value="15">15 minutes</option>
-                    <option value="60">1 hour</option>
-                    <option value="360">6 hours</option>
-                    <option value="1440">Daily</option>
-                  </select>
-                </div>
-              </div>
-
-              <details class="pp-advanced">
+              <details class="pp-advanced mt-3">
                 <summary>Advanced targeting & delivery</summary>
-                <div class="pp-advanced-body">
-                  <div class="row g-3">
-                    <div class="col-md-6">
-                      <label class="form-label" for="selector">CSS selector <span>optional</span></label>
-                      <input id="selector" class="form-control" placeholder=".pricing-card">
-                    </div>
-                    <div class="col-md-6">
-                      <label class="form-label" for="priceRegex">Price pattern <span>optional</span></label>
-                      <input id="priceRegex" class="form-control" placeholder="\$([0-9,.]+)">
-                    </div>
-                    <div class="col-12">
-                      <label class="form-label" for="ignoreRegex">Ignore changing text <span>optional regex</span></label>
-                      <input id="ignoreRegex" class="form-control" placeholder="Updated \d+ minutes ago">
-                    </div>
-                    <div class="col-12">
-                      <label class="form-label" for="webhook">Webhook <span>optional · Slack, Discord or JSON endpoint</span></label>
-                      <input id="webhook" type="url" class="form-control" placeholder="https://hooks.example.com/...">
-                    </div>
-                  </div>
+                <div class="row g-3 mt-1">
+                  <div class="col-md-6"><label class="form-label" for="selector">CSS selector <span class="text-secondary">optional</span></label><input id="selector" class="form-control" placeholder=".product-card"></div>
+                  <div class="col-md-6"><label class="form-label" for="priceRegex">Price regex <span class="text-secondary">optional</span></label><input id="priceRegex" class="form-control" placeholder="\$([0-9,.]+)"></div>
+                  <div class="col-12"><label class="form-label" for="ignoreRegex">Ignore dynamic text <span class="text-secondary">optional regex</span></label><input id="ignoreRegex" class="form-control" placeholder="Updated \d+ minutes ago"></div>
+                  <div class="col-12"><label class="form-label" for="webhook">Webhook <span class="text-secondary">optional</span></label><input id="webhook" type="url" class="form-control" placeholder="Slack, Discord or JSON endpoint"></div>
+                  {% if token_required %}
+                  <div class="col-12"><label class="form-label" for="token">Workspace admin key</label><input id="token" type="password" class="form-control" placeholder="Required to change monitors"></div>
+                  {% endif %}
                 </div>
               </details>
-
-              {% if token_required %}
-              <div class="pp-admin-key">
-                <label class="form-label" for="token">Workspace admin key</label>
-                <input id="token" type="password" class="form-control" placeholder="Required to save changes">
-              </div>
-              {% endif %}
             </div>
           </div>
 
-          <div id="formError" class="alert alert-danger mt-3 d-none" aria-live="polite"></div>
+          <div id="formError" class="alert alert-danger d-none"></div>
         </div>
-
-        <div class="modal-footer">
-          <button type="button" class="btn btn-link" data-bs-dismiss="modal">Cancel</button>
-          <button id="createMonitorBtn" class="btn btn-primary" type="submit"><i class="ti ti-plus me-1"></i>Create monitor</button>
-        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-link" data-bs-dismiss="modal">Cancel</button><button id="createMonitorBtn" class="btn btn-primary" type="submit">Create monitor</button></div>
       </form>
-    </div>
-  </div>
-</div>
-
-<div class="modal modal-blur fade" id="monitorDetail" tabindex="-1">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content pp-modal">
-      <div class="modal-header">
-        <div><div class="pp-panel-kicker">MONITOR DETAIL</div><h3 class="modal-title" id="detailTitle">Monitor</h3></div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body" id="detailBody"><div class="pp-empty">Loading history…</div></div>
     </div>
   </div>
 </div>
