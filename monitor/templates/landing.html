@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PricePulse — Stop checking the same page over and over</title>\n  <link rel="icon" href="/pricepulse/static/favicon.svg" type="image/svg+xml">
-  <meta name="description" content="Managed monitoring for public product, listing and competitor pages. Pay only after your monitors are proven to work.">
+  <title>PricePulse — Find new listings before everyone else</title>\n  <link rel="icon" href="/pricepulse/static/favicon.svg" type="image/svg+xml">
+  <meta name="description" content="Buyer-backed marketplace monitoring for new listings, sold states and price changes. Pay only after your monitor is proven to work.">
   <meta name="theme-color" content="#f5f4f0">
   <meta property="og:title" content="PricePulse — managed page monitoring">
   <meta property="og:description" content="Tell us what public pages matter and what change you care about. PricePulse checks them and keeps dated evidence.">
@@ -23,7 +23,7 @@
       <span>PricePulse</span>
     </a>
     <nav class="lp-nav-links" aria-label="Primary">
-      <a href="#product">Product</a>
+      <a href="#buyers">Buyer evidence</a>
       <a href="#proof">Proof</a>
       <a href="#pilot">Pilot</a>
       <a href="#faq">FAQ</a>
@@ -39,16 +39,16 @@
   <section class="lp-hero">
     <div class="lp-wrap lp-hero-grid">
       <div>
-        <div class="lp-eyebrow"><span class="lp-dot"></span> Managed monitoring · early access</div>
-        <h1>Stop checking the same page over and over.</h1>
-        <p class="lp-lead">Send us the public pages you care about and the exact condition to watch. PricePulse checks them on schedule, keeps dated evidence, and alerts when that condition changes.</p>
+        <div class="lp-eyebrow"><span class="lp-dot"></span> Buyer-backed monitoring · early access</div>
+        <h1>Stop refreshing marketplaces.<br>See the listing while it still matters.</h1>
+        <p class="lp-lead">PricePulse watches a public search/feed or a specific listing for the state that affects a buying decision: a new item, a sold transition, a restock, or a price move.</p>
         <div class="lp-hero-actions">
-          <a href="/pricepulse/pilot" class="btn btn-primary btn-lg lp-pilot-link">Monitor up to 5 pages · $5</a>
+          <a href="/pricepulse/pilot" class="btn btn-primary btn-lg lp-pilot-link">Monitor 5 buyer signals · $5</a>
           <a href="/pricepulse/app" class="btn btn-outline-secondary btn-lg lp-workspace-link">Inspect the workspace</a>
         </div>
         <div class="lp-risk-reversal">
           <i class="ti ti-shield-check"></i>
-          <span><strong>We configure it before you pay.</strong> If your pages cannot be monitored reliably, there is no charge.</span>
+          <span><strong>We configure the exact signal before you pay.</strong> If the target cannot be monitored reliably, there is no charge.</span>
         </div>
       </div>
 
@@ -70,7 +70,7 @@
             <span class="lp-health-state {% if proof_monitor.health == 'healthy' %}ok{% endif %}">{{ proof_monitor.health|upper }}</span>
           </div>
           <dl class="lp-monitor-meta">
-            <div><dt>Rule</dt><dd>contains “Business”</dd></div>
+            <div><dt>Rule</dt><dd>{% if proof_monitor.kind == 'listing_feed' %}new listing{% elif proof_monitor.must_contain %}watch “{{ proof_monitor.must_contain }}”{% else %}{{ proof_monitor.kind }}{% endif %}</dd></div>
             <div><dt>Last check</dt><dd>{% if proof_monitor.last_checked_iso %}{{ proof_monitor.last_checked_iso[11:19] }} UTC{% else %}pending{% endif %}</dd></div>
             <div><dt>HTTP</dt><dd>{{ proof_monitor.last_http_status or '—' }}</dd></div>
             <div><dt>Fetch</dt><dd>{% if proof_monitor.last_latency_ms is not none %}{{ proof_monitor.last_latency_ms }} ms{% else %}—{% endif %}</dd></div>
@@ -127,9 +127,9 @@
   <section class="lp-section" id="product">
     <div class="lp-wrap">
       <div class="lp-section-title">
-        <span class="lp-kicker">THE WORKFLOW</span>
-        <h2>A small watchlist that does the repetitive checking for you.</h2>
-        <p>Each monitor has one job: fetch a page, isolate the part that matters, compare it with the previous version, and keep evidence when the state changes.</p>
+        <span class="lp-kicker">THE ENGINE</span>
+        <h2>Built for changes that have a deadline attached.</h2>
+        <p>The first adapters focus on marketplace/listing state, price movement and availability. Every check keeps the evidence needed to know whether an alert was real.</p>
       </div>
 
       <div class="lp-feature-grid">
@@ -143,17 +143,39 @@
     </div>
   </section>
 
-  <section class="lp-section lp-usecase-section">
+  <section class="lp-section lp-usecase-section" id="buyers">
     <div class="lp-wrap">
       <div class="lp-section-title">
-        <span class="lp-kicker">USE CASES</span>
-        <h2>Pages people already spend time checking manually.</h2>
+        <span class="lp-kicker">BUYER RESEARCH · SEPTEMBER 2026</span>
+        <h2>These are not imaginary examples. Buyers are hiring people to watch these markets.</h2>
+        <p>We used active job posts with visible hiring activity to choose the first monitoring experiments. The exact private searches are usually not published, so our lab uses public targets that match the buyer’s stated market and rules.</p>
       </div>
-      <div class="lp-usecases">
-        <div class="lp-usecase active"><i class="ti ti-building-store"></i><div><strong>Competitor pricing</strong><span>Plans, packaging, promotions and feature copy.</span></div></div>
-        <div class="lp-usecase"><i class="ti ti-shopping-cart"></i><div><strong>Price & restock</strong><span>Products that are expensive, scarce, or time-sensitive.</span></div></div>
-        <div class="lp-usecase"><i class="ti ti-list-details"></i><div><strong>Listings</strong><span>Public opportunities or inventory that appears and disappears.</span></div></div>
-        <div class="lp-usecase"><i class="ti ti-file-description"></i><div><strong>Policies & pages</strong><span>Public terms, notices, disclosures and reference pages.</span></div></div>
+
+      <div class="lp-buyer-table">
+        <a class="lp-buyer-row" href="https://www.upwork.com/freelance-jobs/apply/Vinted-Market-Researcher-Find-Viral-Unbranded-Y2K-Fast-Fashion-Items-Retail_~022095799390085697287/" target="_blank" rel="noopener">
+          <span class="lp-buyer-market">VINTED UK</span>
+          <span><strong>Track Y2K / Japan Style listings until they sell</strong><small>Buyer asks for 12–24h active tracking, views/favourites, time-to-sold and multiple sales/day. Upwork shows 1 hire.</small></span>
+          <span class="lp-buyer-money">1 hire</span>
+        </a>
+        <a class="lp-buyer-row" href="https://www.upwork.com/freelance-jobs/apply/Facebook-Marketplace-Deal-Finder-Furniture-Reselling-Opportunities_~022095717884871588739/" target="_blank" rel="noopener">
+          <span class="lp-buyer-market">FB MARKETPLACE</span>
+          <span><strong>Find undervalued couches before competing buyers</strong><small>$500 job. Buyer explicitly wants constant scanning, alerts/software and first-to-message speed. Upwork shows 1 hire.</small></span>
+          <span class="lp-buyer-money">$500 · 1 hire</span>
+        </a>
+        <a class="lp-buyer-row" href="https://www.upwork.com/freelance-jobs/apply/Automate-price-monitoring_~022100609442313515937/" target="_blank" rel="noopener">
+          <span class="lp-buyer-market">ONLINE STORES</span>
+          <span><strong>Watch chosen products and push price-drop alerts</strong><small>$150 job for a stable watchlist with Telegram, WhatsApp or email alerts. Upwork shows 1 hire.</small></span>
+          <span class="lp-buyer-money">$150 · 1 hire</span>
+        </a>
+      </div>
+
+      <div class="lp-current-experiment">
+        <div>
+          <span class="lp-kicker">OUR CURRENT BUYER-BACKED TARGET</span>
+          <strong>Vinted UK · Japan Style / Y2K listing state</strong>
+          <p>We are testing a real public Vinted item and feed instead of a SaaS pricing page. The production lab already reaches the live Japan Style item successfully; feed parsing is being hardened separately.</p>
+        </div>
+        <a class="btn btn-outline-secondary" href="https://www.vinted.co.uk/items/7587599448-y2k-japanese-ruffle-blouse-sheer-ivory-shirt-with-contrast-cuffs" target="_blank" rel="noopener">Open exact Vinted target</a>
       </div>
     </div>
   </section>
