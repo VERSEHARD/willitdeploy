@@ -14,7 +14,7 @@ from flask import Flask, jsonify, render_template, request
 
 from scanner import scan_repo, scan_fixture, regression_checks, quick_npm_probe, repair_npm11_lockfile
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.5.1"
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -52,7 +52,7 @@ executor = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("SCAN_WORKERS", "
 write_lock = threading.Lock()
 
 
-RESEARCH_BATCH_ID = "npm11-repair-003"
+RESEARCH_BATCH_ID = "npm11-repair-004"
 RESEARCH_STATE_PATH = DATA_DIR / "research_state.json"
 research_state_lock = threading.Lock()
 research_thread_started = False
