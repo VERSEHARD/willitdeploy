@@ -142,14 +142,22 @@ function renderBrief(){
 
 function renderLab(){
   const lab=state.lab||{};
+  const rolling=lab.rolling||{};
   $('#labPassRate').textContent=lab.pass_rate==null?'—':lab.pass_rate+'%';
   $('#labStability').textContent=lab.stability_rate==null?'—':lab.stability_rate+'%';
-  $('#labTargets').textContent=(lab.targets||[]).length;
+  if($('#labPassRolling')) $('#labPassRolling').textContent='rolling '+(rolling.pass_rate==null?'—':rolling.pass_rate+'%');
+  if($('#labStabilityRolling')) $('#labStabilityRolling').textContent='rolling '+(rolling.stability_rate==null?'—':rolling.stability_rate+'%');
+  if($('#labSamples')) $('#labSamples').textContent=rolling.samples||0;
+  $('#labTargets').textContent=(lab.targets||[]).length+' targets';
   $('#labLastRun').textContent=fmtTime(lab.last_run_iso);
   $('#proofPassRate').textContent=lab.pass_rate==null?'—':lab.pass_rate+'%';
   $('#proofRunTime').textContent=lab.last_run_iso?'last run '+fmtTime(lab.last_run_iso):'waiting for first run';
   const targets=lab.targets||[];
-  $('#labCards').innerHTML=targets.length?targets.map(t=>'<div class="col-12 col-md-6 col-xl-3"><div class="pp-lab-card"><div class="pp-lab-card-head"><div><h3>'+esc(t.target)+'</h3><p>'+esc(t.url)+'</p></div><span class="badge '+(t.ok?'bg-green-lt text-green':'bg-red-lt text-red')+'">'+(t.ok?'PASS':'FAIL')+'</span></div><div class="pp-lab-meta"><div><span>HTTP</span><strong>'+esc(t.http_status||'—')+'</strong></div><div><span>Latency</span><strong>'+esc(fmtLatency(t.latency_ms))+'</strong></div><div><span>Stable</span><strong>'+(t.stable==null?'—':(t.stable?'YES':'NO'))+'</strong></div></div>'+(t.error?'<div class="small text-danger mt-3">'+esc(t.error)+'</div>':'')+'</div></div>').join(''):'<div class="col-12"><div class="pp-empty">Reliability run is starting…</div></div>';
+  const historyByTarget=new Map((rolling.targets||[]).map(x=>[x.target,x]));
+  $('#labCards').innerHTML=targets.length?targets.map(t=>{
+    const hist=historyByTarget.get(t.target)||{};
+    return '<div class="col-12 col-md-6 col-xl-3"><div class="pp-lab-card"><div class="pp-lab-card-head"><div><h3>'+esc(t.target)+'</h3><p>'+esc(t.url)+'</p></div><span class="badge '+(t.ok?'bg-green-lt text-green':'bg-red-lt text-red')+'">'+(t.ok?'PASS':'FAIL')+'</span></div><div class="pp-lab-meta"><div><span>HTTP</span><strong>'+esc(t.http_status||'—')+'</strong></div><div><span>Latency</span><strong>'+esc(fmtLatency(t.latency_ms))+'</strong></div><div><span>History</span><strong>'+esc(hist.checks||1)+' runs</strong></div></div><div class="pp-lab-history"><span>rolling pass '+(hist.pass_rate==null?'—':hist.pass_rate+'%')+'</span><span>stable '+(hist.stability_rate==null?'—':hist.stability_rate+'%')+'</span></div>'+(t.error?'<div class="small text-danger mt-3">'+esc(t.error)+'</div>':'')+'</div></div>';
+  }).join(''):'<div class="col-12"><div class="pp-empty">Reliability run is starting…</div></div>';
 
   const real=state.monitors.find(m=>m.name==='Live proof · Linear pricing');
   $('#proofText').textContent=real&&real.last_checked_iso?'Linear pricing fetched '+fmtTime(real.last_checked_iso)+' · detected '+fmtPrice(real)+' · '+(real.last_error?'error: '+real.last_error:'healthy check'):'Waiting for the external demo monitor.';
