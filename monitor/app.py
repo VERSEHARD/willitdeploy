@@ -18,7 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -169,7 +169,9 @@ def migrate_schema():
 
         lab_additions = {
             "stable": "INTEGER",
-            "second_latency_ms": "INTEGER"
+            "second_latency_ms": "INTEGER",
+            "expected_stable": "INTEGER",
+            "stability_correct": "INTEGER"
         }
         for name, ddl in lab_additions.items():
             if name not in lab_cols:
@@ -694,14 +696,20 @@ def run_monitor(monitor_id):
 def run_reliability_lab():
     global lab_last_run
     targets = [
-        {"target": "Distill pricing", "url": "https://distill.io/pricing/", "expect": "Starter"},
-        {"target": "ChangeTower pricing", "url": "https://changetower.com/pricing/", "expect": "Business"},
-        {"target": "Browse AI pricing", "url": "https://www.browse.ai/pricing", "expect": "Professional"},
-        {"target": "Linear pricing", "url": "https://linear.app/pricing", "expect": "Business"},
-        {"target": "GitHub pricing", "url": "https://github.com/pricing", "expect": "Enterprise"},
-        {"target": "UptimeRobot pricing", "url": "https://uptimerobot.com/pricing/", "expect": "Solo"},
-        {"target": "Visualping pricing", "url": "https://visualping.io/pricing", "expect": "Business"},
-        {"target": "Sentry pricing", "url": "https://sentry.io/pricing/", "expect": "Team"},
+        {"target": "Distill pricing", "url": "https://distill.io/pricing/", "expect": "Starter", "expect_stable": True},
+        {"target": "ChangeTower pricing", "url": "https://changetower.com/pricing/", "expect": "Business", "expect_stable": True},
+        {"target": "Browse AI pricing", "url": "https://www.browse.ai/pricing", "expect": "Professional", "expect_stable": True},
+        {"target": "Linear pricing", "url": "https://linear.app/pricing", "expect": "Business", "expect_stable": True},
+        {"target": "GitHub pricing", "url": "https://github.com/pricing", "expect": "Enterprise", "expect_stable": True},
+        {"target": "UptimeRobot pricing", "url": "https://uptimerobot.com/pricing/", "expect": "Solo", "expect_stable": True},
+        {"target": "Visualping pricing", "url": "https://visualping.io/pricing", "expect": "Business", "expect_stable": True},
+        {"target": "Sentry pricing", "url": "https://sentry.io/pricing/", "expect": "Team", "expect_stable": True},
+        {
+            "target": "Dynamic control · TimeAPI.io",
+            "url": "https://timeapi.io/api/Time/current/zone?timeZone=UTC",
+            "expect": "dateTime",
+            "expect_stable": False,
+        },
     ]
 
     for target in targets:
@@ -711,6 +719,8 @@ def run_reliability_lab():
         second_latency_ms = None
         html = ""
         stable = None
+        expected_stable = bool(target.get("expect_stable", True))
+        stability_correct = None
         signal = None
         error = None
         ok = False
@@ -731,6 +741,8 @@ def run_reliability_lab():
             second_hash = hashlib.sha256(second_text.encode("utf-8")).hexdigest()
 
             stable = first_hash == second_hash
+            expected_stable = bool(target.get("expect_stable", True))
+            stability_correct = stable == expected_stable
             has_signal = (
                 target["expect"].lower() in first_text.lower()
                 and target["expect"].lower() in second_text.lower()
@@ -748,6 +760,8 @@ def run_reliability_lab():
             "target": target["target"],
             "ok": ok,
             "stable": stable,
+            "expected_stable": expected_stable,
+            "stability_correct": stability_correct,
             "http_status": status,
             "second_http_status": second_status,
             "latency_ms": latency_ms,
@@ -759,8 +773,9 @@ def run_reliability_lab():
         with db() as conn:
             conn.execute(
                 """INSERT INTO lab_runs(
-                    target,url,created_at,ok,http_status,latency_ms,content_bytes,signal,error,stable,second_latency_ms
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    target,url,created_at,ok,http_status,latency_ms,content_bytes,signal,error,
+                    stable,second_latency_ms,expected_stable,stability_correct
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     target["target"],
                     target["url"],
@@ -773,6 +788,8 @@ def run_reliability_lab():
                     error,
                     None if stable is None else (1 if stable else 0),
                     second_latency_ms,
+                    1 if expected_stable else 0,
+                    None if stability_correct is None else (1 if stability_correct else 0),
                 ),
             )
             conn.execute(
@@ -990,6 +1007,8 @@ def lab_evidence_summary(limit=100):
         d = dict(row)
         d["ok"] = bool(d["ok"])
         d["stable"] = None if d.get("stable") is None else bool(d["stable"])
+        d["expected_stable"] = None if d.get("expected_stable") is None else bool(d["expected_stable"])
+        d["stability_correct"] = None if d.get("stability_correct") is None else bool(d["stability_correct"])
         d["created_at_iso"] = iso(d["created_at"])
         history.append(d)
         latest.setdefault(d["target"], d)
@@ -1004,11 +1023,15 @@ def lab_evidence_summary(limit=100):
         })
         target["checks"] += 1
         target["passes"] += 1 if d["ok"] else 0
-        if d["stable"] is not None:
+        stability_result = d["stability_correct"] if d["stability_correct"] is not None else d["stable"]
+        if stability_result is not None:
             target["stable_samples"] += 1
-            target["stable_passes"] += 1 if d["stable"] else 0
+            target["stable_passes"] += 1 if stability_result else 0
 
-    valid_stability = [x for x in history if x["stable"] is not None]
+    valid_stability = [
+        x for x in history
+        if (x["stability_correct"] if x["stability_correct"] is not None else x["stable"]) is not None
+    ]
     for target in per_target.values():
         target["pass_rate"] = round(target["passes"] / target["checks"] * 100, 1) if target["checks"] else None
         target["stability_rate"] = round(
@@ -1016,7 +1039,10 @@ def lab_evidence_summary(limit=100):
         ) if target["stable_samples"] else None
 
     latest_values = list(latest.values())
-    latest_stability = [x for x in latest_values if x["stable"] is not None]
+    latest_stability = [
+        x for x in latest_values
+        if (x["stability_correct"] if x["stability_correct"] is not None else x["stable"]) is not None
+    ]
     return {
         "latest": latest_values,
         "history": history,
@@ -1025,13 +1051,19 @@ def lab_evidence_summary(limit=100):
             sum(1 for x in latest_values if x["ok"]) / len(latest_values) * 100, 1
         ) if latest_values else None,
         "latest_stability_rate": round(
-            sum(1 for x in latest_stability if x["stable"]) / len(latest_stability) * 100, 1
+            sum(
+                1 for x in latest_stability
+                if (x["stability_correct"] if x["stability_correct"] is not None else x["stable"])
+            ) / len(latest_stability) * 100, 1
         ) if latest_stability else None,
         "rolling_pass_rate": round(
             sum(1 for x in history if x["ok"]) / len(history) * 100, 1
         ) if history else None,
         "rolling_stability_rate": round(
-            sum(1 for x in valid_stability if x["stable"]) / len(valid_stability) * 100, 1
+            sum(
+                1 for x in valid_stability
+                if (x["stability_correct"] if x["stability_correct"] is not None else x["stable"])
+            ) / len(valid_stability) * 100, 1
         ) if valid_stability else None,
         "per_target": sorted(per_target.values(), key=lambda x: x["target"].lower()),
         "last_run_iso": iso(max((x["created_at"] for x in latest_values), default=None)),
