@@ -6,6 +6,7 @@ import sqlite3
 import threading
 import time
 import uuid
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from flask import Flask, jsonify, render_template, request
 
 from scanner import scan_repo, scan_fixture, regression_checks
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -34,8 +35,15 @@ def pick_data_dir() -> Path:
 
 DATA_DIR = pick_data_dir()
 DB_PATH = DATA_DIR / "willitdeploy.sqlite3"
-WORK_DIR = DATA_DIR / "work"
-RUNTIME_DIR = DATA_DIR / "runtimes"
+
+# Build workspaces and downloaded Node runtimes are intentionally ephemeral.
+# Railway volumes can be small; using /tmp keeps large runtime tarballs/extracts
+# off the persistent volume while preserving only the lightweight SQLite history.
+TEMP_STORAGE_DIR = Path(
+    os.getenv("TEMP_STORAGE_DIR", str(Path(tempfile.gettempdir()) / "willitdeploy"))
+)
+WORK_DIR = TEMP_STORAGE_DIR / "work"
+RUNTIME_DIR = TEMP_STORAGE_DIR / "runtimes"
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -155,6 +163,9 @@ def health():
             "python": platform.python_version(),
             "platform": platform.platform(),
             "data_dir": str(DATA_DIR),
+            "temp_storage_dir": str(TEMP_STORAGE_DIR),
+            "runtime_dir": str(RUNTIME_DIR),
+            "temp_free_bytes": shutil.disk_usage(TEMP_STORAGE_DIR).free,
             "full_builds_enabled": os.getenv("ALLOW_FULL_BUILDS", "0") == "1",
             "token_required": bool(os.getenv("SCAN_TOKEN", "").strip()),
             "tools": tools,

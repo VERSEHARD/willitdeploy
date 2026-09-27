@@ -664,11 +664,23 @@ def ensure_node(major: int, runtime_root: Path) -> Path:
     runtime_root.mkdir(parents=True, exist_ok=True)
     archive = runtime_root / f"node-{version}-{platform_key}.tar.xz"
     url = f"https://nodejs.org/dist/{version}/node-{version}-{platform_key}.tar.xz"
-    urllib.request.urlretrieve(url, archive)
-    with tarfile.open(archive, "r:xz") as tar:
-        safe_extract(tar, runtime_root)
-    archive.unlink(missing_ok=True)
+    try:
+        archive.unlink(missing_ok=True)
+        # Remove a previous partial extraction before retrying.
+        if target.exists() and not node_bin.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        urllib.request.urlretrieve(url, archive)
+        with tarfile.open(archive, "r:xz") as tar:
+            safe_extract(tar, runtime_root)
+    except Exception:
+        archive.unlink(missing_ok=True)
+        if target.exists() and not node_bin.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        raise
+    finally:
+        archive.unlink(missing_ok=True)
     if not node_bin.exists():
+        shutil.rmtree(target, ignore_errors=True)
         raise RuntimeError(f"Downloaded Node {version} but binary was not found")
     return target
 

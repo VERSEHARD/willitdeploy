@@ -1,8 +1,8 @@
-# WillItDeploy? v0.2
+# WillItDeploy? v0.2.1
 
 Research prototype for empirically testing Node.js runtime compatibility.
 
-## What v0.2 adds
+## What v0.2.1 adds
 
 - Finds Node projects below repo root instead of treating non-root projects as failures.
 - Detects Node pins from `engines.node`, Volta, `.nvmrc`, `.node-version`, `.tool-versions`, Docker `FROM node:...`, and Railpack/Nixpacks config.
@@ -13,14 +13,17 @@ Research prototype for empirically testing Node.js runtime compatibility.
 - Regression fixtures for the two bugs discovered during v0.1 testing: transitive `deasync` and Volta Node pins.
 - Optional project path for monorepos.
 
+- **Ephemeral build storage:** downloaded Node runtimes, tarballs, npm caches, cloned repos, and build workspaces now live under `/tmp/willitdeploy` instead of the Railway volume. Only the small SQLite scan history remains in `DATA_DIR`.
+
 ## Railway deployment
 
-Deploy with the included Dockerfile. Mount a Railway volume at `/data`.
+Deploy with the included Dockerfile. A Railway volume at `/data` is optional and is used only to persist the small SQLite scan history. Large Node runtimes and build workspaces use ephemeral `/tmp` storage and are recreated after a fresh deployment.
 
 Recommended variables:
 
 ```env
 DATA_DIR=/data
+TEMP_STORAGE_DIR=/tmp/willitdeploy
 SCAN_WORKERS=1
 SCAN_TOKEN=choose-a-long-private-token
 ALLOW_FULL_BUILDS=1
@@ -31,7 +34,7 @@ STATIC_REGISTRY_MAX_PACKAGES=160
 STATIC_REGISTRY_MAX_DEPTH=4
 ```
 
-After changing `ALLOW_FULL_BUILDS`, redeploy the service.
+After changing `ALLOW_FULL_BUILDS`, redeploy the service. If your old v0.2 deployment filled `/data/runtimes`, you may delete that old folder after upgrading; v0.2.1 no longer reads it.
 
 ## First experiment sequence
 
