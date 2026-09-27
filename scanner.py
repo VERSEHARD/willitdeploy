@@ -918,6 +918,160 @@ def full_build_matrix(
     return results
 
 
+
+def quick_npm_probe(
+    repo_url: str,
+    branch: str | None,
+    work_root: Path,
+    runtime_root: Path,
+    node_majors: list[int] | None = None,
+    npm_versions: list[str] | None = None,
+    project_path: str | None = None,
+) -> dict[str, Any]:
+    """
+    Fast research probe for npm compatibility.
+
+    It shallow-clones the repo and runs npm ci --dry-run --ignore-scripts
+    across a controlled Node x npm matrix. No package lifecycle scripts run.
+    This is intentionally cheaper and safer than a full build and is meant
+    for high-frequency screening before any deeper confirmation.
+    """
+    slug = repo_slug(repo_url)
+    node_majors = node_majors or [22]
+    npm_specs = validate_npm_versions(npm_versions or ["10.9.9", "11.19.0"])
+    session = Path(tempfile.mkdtemp(prefix="wid-quick-", dir=work_root))
+    clone_dir = session / "repo"
+    try:
+        size_mb = clone_repo(repo_url, branch, clone_dir)
+        project, projects, selected = choose_project(clone_dir, project_path)
+        if project is None or not selected:
+            return {
+                "repo": slug,
+                "status": "not_applicable",
+                "repo_size_mb": size_mb,
+                "project_path": None,
+                "projects": projects,
+                "matrix": [],
+                "classification": "no_node_project",
+            }
+
+        pkg = load_json(project / "package.json")
+        pm = detect_package_manager(project, pkg)
+        has_lock = (project / "package-lock.json").exists() or (project / "npm-shrinkwrap.json").exists()
+        if pm["name"] != "npm":
+            return {
+                "repo": slug,
+                "status": "unsupported_package_manager",
+                "repo_size_mb": size_mb,
+                "project_path": selected,
+                "projects": projects,
+                "package_manager": pm,
+                "matrix": [],
+                "classification": f"unsupported_{pm['name']}",
+            }
+        if not has_lock:
+            return {
+                "repo": slug,
+                "status": "no_lockfile",
+                "repo_size_mb": size_mb,
+                "project_path": selected,
+                "projects": projects,
+                "package_manager": pm,
+                "matrix": [],
+                "classification": "no_npm_lockfile",
+            }
+
+        results: list[dict[str, Any]] = []
+        npm_root = runtime_root.parent / "npm-tools"
+
+        for major in node_majors:
+            node_dir = ensure_node(major, runtime_root)
+            runtime_version = run([str(node_dir / "bin" / "node"), "--version"], timeout=20)["output"].strip()
+
+            for npm_spec in npm_specs:
+                safe_spec = npm_spec.replace(".", "-")
+                workspace = Path(tempfile.mkdtemp(prefix=f"wid-probe-node{major}-npm{safe_spec}-", dir=work_root))
+                repo_copy = workspace / "repo"
+                try:
+                    shutil.copytree(
+                        clone_dir,
+                        repo_copy,
+                        ignore=shutil.ignore_patterns(".git", "node_modules", ".next", "dist", "build", "coverage"),
+                    )
+                    selected_project = repo_copy if selected == "." else repo_copy / selected
+                    env = sanitized_env(node_dir, workspace)
+                    chown_tree(workspace)
+
+                    npm_cli, requested_npm, npm_source = npm_cli_for(node_dir, npm_spec, npm_root)
+                    npm_probe = run(npm_cli + ["--version"], cwd=selected_project, env=env, timeout=30)
+                    npm_version = npm_probe["output"].strip() if npm_probe["code"] == 0 else f"unavailable ({npm_spec})"
+
+                    if npm_probe["code"] != 0:
+                        results.append({
+                            "node_major": major,
+                            "node_version": runtime_version,
+                            "npm_requested": requested_npm,
+                            "npm_source": npm_source,
+                            "npm_version": npm_version,
+                            "status": "fail_toolchain",
+                            "probe": npm_probe,
+                            "failure_signatures": classify_failure(npm_probe["output"]),
+                        })
+                        continue
+
+                    cmd = npm_cli + [
+                        "ci",
+                        "--dry-run",
+                        "--ignore-scripts",
+                        "--no-audit",
+                        "--no-fund",
+                        "--progress=false",
+                    ]
+                    probe = run(cmd, cwd=selected_project, env=env, timeout=min(INSTALL_TIMEOUT, 180), limits=True, drop_privileges=True)
+                    results.append({
+                        "node_major": major,
+                        "node_version": runtime_version,
+                        "npm_requested": requested_npm,
+                        "npm_source": npm_source,
+                        "npm_version": npm_version,
+                        "status": "pass" if probe["code"] == 0 else "fail_install",
+                        "probe": probe,
+                        "failure_signatures": classify_failure(probe["output"]),
+                    })
+                finally:
+                    shutil.rmtree(workspace, ignore_errors=True)
+
+        by_npm: dict[str, list[str]] = {}
+        for row in results:
+            key = str(row.get("npm_requested") or row.get("npm_version"))
+            by_npm.setdefault(key, []).append(row["status"])
+
+        classification = "mixed"
+        npm10 = by_npm.get("10.9.9", [])
+        npm11 = by_npm.get("11.19.0", [])
+        if npm10 and npm11:
+            if all(x == "pass" for x in npm10) and all(x != "pass" for x in npm11):
+                classification = "npm11_break_candidate"
+            elif all(x == "pass" for x in npm10 + npm11):
+                classification = "clean"
+            elif all(x != "pass" for x in npm10 + npm11):
+                classification = "baseline_fail"
+            elif all(x != "pass" for x in npm10) and all(x == "pass" for x in npm11):
+                classification = "npm11_fix_candidate"
+
+        return {
+            "repo": slug,
+            "status": "completed",
+            "repo_size_mb": size_mb,
+            "project_path": selected,
+            "projects": projects,
+            "package_manager": pm,
+            "matrix": results,
+            "classification": classification,
+        }
+    finally:
+        shutil.rmtree(session, ignore_errors=True)
+
 def diagnose_matrix(matrix: list[dict[str, Any]] | None) -> dict[str, Any] | None:
     if not matrix:
         return None
