@@ -18,7 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
 
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.3.3"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -26,7 +26,7 @@ DB_PATH = DATA_DIR / "pricepulse.sqlite3"
 ADMIN_TOKEN = os.getenv("MONITOR_TOKEN", "")
 CHECK_TICK_SECONDS = max(10, int(os.getenv("CHECK_TICK_SECONDS", "30")))
 DEFAULT_INTERVAL_MIN = max(1, int(os.getenv("DEFAULT_INTERVAL_MIN", "5")))
-SEED_DEMO = os.getenv("SEED_DEMO", "1") == "1"
+SEED_DEMO = os.getenv("SEED_DEMO", "1") == "1"\nENABLE_BACKGROUND = os.getenv("ENABLE_BACKGROUND", "1") == "1"
 MAX_BODY_BYTES = 2_000_000
 USER_AGENT = os.getenv(
     "FETCH_USER_AGENT",
@@ -808,6 +808,8 @@ def scheduler_loop():
 
 def ensure_scheduler():
     global scheduler_started
+    if not ENABLE_BACKGROUND:
+        return
     with scheduler_lock:
         if scheduler_started:
             return
