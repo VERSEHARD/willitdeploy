@@ -831,14 +831,30 @@ def run_monitor(monitor_id):
 def run_reliability_lab():
     global lab_last_run
     targets = [
-        {"target": "Distill pricing", "url": "https://distill.io/pricing/", "expect": "Starter", "expect_stable": True},
-        {"target": "ChangeTower pricing", "url": "https://changetower.com/pricing/", "expect": "Business", "expect_stable": True},
-        {"target": "Browse AI pricing", "url": "https://www.browse.ai/pricing", "expect": "Professional", "expect_stable": True},
-        {"target": "Linear pricing", "url": "https://linear.app/pricing", "expect": "Business", "expect_stable": True},
-        {"target": "GitHub pricing", "url": "https://github.com/pricing", "expect": "Enterprise", "expect_stable": True},
-        {"target": "UptimeRobot pricing", "url": "https://uptimerobot.com/pricing/", "expect": "Solo", "expect_stable": True},
-        {"target": "Visualping pricing", "url": "https://visualping.io/pricing", "expect": "Business", "expect_stable": True},
-        {"target": "Sentry pricing", "url": "https://sentry.io/pricing/", "expect": "Team", "expect_stable": True},
+        {
+            "target": "Vinted UK fashion feed",
+            "url": "https://www.vinted.co.uk/catalog/1223-aviatoru-tipa-jakas/brand/14803-vintage-dressing",
+            "expect": "Y2K",
+            "expect_stable": True,
+        },
+        {
+            "target": "Vinted live Japan Style item",
+            "url": "https://www.vinted.co.uk/items/7587599448-y2k-japanese-ruffle-blouse-sheer-ivory-shirt-with-contrast-cuffs",
+            "expect": "Japan Style",
+            "expect_stable": True,
+        },
+        {
+            "target": "Rightbiz UK business feed",
+            "url": "https://www.rightbiz.co.uk/search/?more_category=none&sector=businesses&location=uk&sortby=new&noindex=1",
+            "expect": "Business",
+            "expect_stable": True,
+        },
+        {
+            "target": "BusinessesForSale UK feed",
+            "url": "https://uk.businessesforsale.com/uk/search/businesses-for-sale",
+            "expect": "Businesses",
+            "expect_stable": True,
+        },
         {
             "target": "Dynamic control · TimeAPI.io",
             "url": "https://timeapi.io/api/Time/current/zone?timeZone=UTC",
@@ -1044,6 +1060,13 @@ def startup_self_test():
     {"@context":"https://schema.org","@type":"Product","name":"Demo","offers":{"@type":"Offer","price":"129.99","priceCurrency":"USD","availability":"https://schema.org/InStock"}}
     </script></head><body><h1>Demo</h1></body></html>
     """
+    listing_fixture = """
+    <html><body><div class="card"><a href="/items/123-demo-y2k">Y2K jacket £42.00</a></div></body></html>
+    """
+    extracted = extract_marketplace_listings(listing_fixture, "https://www.vinted.co.uk/catalog")
+    assert extracted and extracted[0]["item_key"] == "123"
+    assert extracted[0]["price"] == 42.0
+
     structured = extract_structured_product(structured_fixture)
     assert structured["price"] == 129.99
     assert structured["currency"] == "USD"
@@ -1083,41 +1106,66 @@ def startup_self_test():
 
 
 def seed_demo_monitor():
-    """Seed one real production-site monitor for visible proof, and remove the old demo fixture."""
+    """Seed buyer-backed public targets rather than static pricing-page demos."""
     if not SEED_DEMO:
         return
     with db() as conn:
-        old = conn.execute("SELECT id FROM monitors WHERE name=?", ("Books demo under 60",)).fetchone()
-        if old:
-            conn.execute("DELETE FROM snapshots WHERE monitor_id=?", (old["id"],))
-            conn.execute("DELETE FROM events WHERE monitor_id=?", (old["id"],))
-            conn.execute("DELETE FROM monitors WHERE id=?", (old["id"],))
-
-        row = conn.execute("SELECT id FROM monitors WHERE name=?", ("Live proof · Linear pricing",)).fetchone()
-        if row:
-            return
-
-        conn.execute(
-            """INSERT INTO monitors(
-                name,url,selector,must_contain,price_regex,max_price,interval_min,
-                webhook_url,enabled,created_at,next_check,kind,is_demo
-            ) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?)""",
-            (
-                "Live proof · Linear pricing",
-                "https://linear.app/pricing",
-                None,
-                "Business",
-                None,
-                None,
-                60,
-                None,
-                now_ts(),
-                now_ts(),
-                "keyword",
-                1,
-            ),
+        old_demo_names = (
+            "Books demo under 60",
+            "Live proof · Linear pricing",
         )
-    print("[PricePulse] real proof monitor seeded", flush=True)
+        for name in old_demo_names:
+            row = conn.execute("SELECT id FROM monitors WHERE name=?", (name,)).fetchone()
+            if row:
+                conn.execute("DELETE FROM snapshots WHERE monitor_id=?", (row["id"],))
+                conn.execute("DELETE FROM events WHERE monitor_id=?", (row["id"],))
+                conn.execute("DELETE FROM listing_items WHERE monitor_id=?", (row["id"],))
+                conn.execute("DELETE FROM monitors WHERE id=?", (row["id"],))
+
+        demos = [
+            {
+                "name": "Buyer-backed · Vinted fast-fashion feed",
+                "url": "https://www.vinted.co.uk/catalog/1223-aviatoru-tipa-jakas/brand/14803-vintage-dressing",
+                "kind": "listing_feed",
+                "must_contain": "Y2K",
+                "max_price": None,
+                "interval_min": 15,
+            },
+            {
+                "name": "Buyer-backed · Vinted Japan Style item",
+                "url": "https://www.vinted.co.uk/items/7587599448-y2k-japanese-ruffle-blouse-sheer-ivory-shirt-with-contrast-cuffs",
+                "kind": "keyword",
+                "must_contain": "Sold",
+                "max_price": None,
+                "interval_min": 15,
+            },
+        ]
+
+        for demo in demos:
+            exists = conn.execute("SELECT id FROM monitors WHERE name=?", (demo["name"],)).fetchone()
+            if exists:
+                continue
+            conn.execute(
+                """INSERT INTO monitors(
+                    name,url,selector,must_contain,price_regex,max_price,interval_min,
+                    webhook_url,enabled,created_at,next_check,kind,is_demo
+                ) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?)""",
+                (
+                    demo["name"],
+                    demo["url"],
+                    None,
+                    demo["must_contain"],
+                    None,
+                    demo["max_price"],
+                    demo["interval_min"],
+                    None,
+                    now_ts(),
+                    now_ts(),
+                    demo["kind"],
+                    1,
+                ),
+            )
+    print("[PricePulse] buyer-backed proof monitors seeded", flush=True)
 
 
 @app.after_request
