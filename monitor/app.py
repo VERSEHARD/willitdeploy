@@ -18,7 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
 
-APP_VERSION = "0.3.3"
+APP_VERSION = "0.4.0"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -782,7 +782,12 @@ def run_reliability_lab():
             )
 
     lab_last_run = now_ts()
-    print("[PricePulse] reliability-lab complete", flush=True)
+    summary = lab_evidence_summary(100)
+    print("[PricePulse] reliability-lab complete", json.dumps({
+        "rolling_samples": summary["samples"],
+        "rolling_pass_rate": summary["rolling_pass_rate"],
+        "rolling_stability_rate": summary["rolling_stability_rate"],
+    }, sort_keys=True), flush=True)
 
 
 def scheduler_loop():
@@ -971,13 +976,71 @@ def should_track_request():
     return not any(token in ua for token in bot_tokens)
 
 
-def public_proof():
+def lab_evidence_summary(limit=100):
     with db() as conn:
-        latest_rows = conn.execute(
-            """SELECT * FROM lab_runs
-               WHERE id IN (SELECT MAX(id) FROM lab_runs GROUP BY target)
-               ORDER BY target"""
+        rows = conn.execute(
+            """SELECT * FROM lab_runs ORDER BY created_at DESC, id DESC LIMIT ?""",
+            (max(8, min(100, int(limit))),),
         ).fetchall()
+
+    history = []
+    latest = {}
+    per_target = {}
+    for row in rows:
+        d = dict(row)
+        d["ok"] = bool(d["ok"])
+        d["stable"] = None if d.get("stable") is None else bool(d["stable"])
+        d["created_at_iso"] = iso(d["created_at"])
+        history.append(d)
+        latest.setdefault(d["target"], d)
+
+        target = per_target.setdefault(d["target"], {
+            "target": d["target"],
+            "url": d["url"],
+            "checks": 0,
+            "passes": 0,
+            "stable_samples": 0,
+            "stable_passes": 0,
+        })
+        target["checks"] += 1
+        target["passes"] += 1 if d["ok"] else 0
+        if d["stable"] is not None:
+            target["stable_samples"] += 1
+            target["stable_passes"] += 1 if d["stable"] else 0
+
+    valid_stability = [x for x in history if x["stable"] is not None]
+    for target in per_target.values():
+        target["pass_rate"] = round(target["passes"] / target["checks"] * 100, 1) if target["checks"] else None
+        target["stability_rate"] = round(
+            target["stable_passes"] / target["stable_samples"] * 100, 1
+        ) if target["stable_samples"] else None
+
+    latest_values = list(latest.values())
+    latest_stability = [x for x in latest_values if x["stable"] is not None]
+    return {
+        "latest": latest_values,
+        "history": history,
+        "samples": len(history),
+        "latest_pass_rate": round(
+            sum(1 for x in latest_values if x["ok"]) / len(latest_values) * 100, 1
+        ) if latest_values else None,
+        "latest_stability_rate": round(
+            sum(1 for x in latest_stability if x["stable"]) / len(latest_stability) * 100, 1
+        ) if latest_stability else None,
+        "rolling_pass_rate": round(
+            sum(1 for x in history if x["ok"]) / len(history) * 100, 1
+        ) if history else None,
+        "rolling_stability_rate": round(
+            sum(1 for x in valid_stability if x["stable"]) / len(valid_stability) * 100, 1
+        ) if valid_stability else None,
+        "per_target": sorted(per_target.values(), key=lambda x: x["target"].lower()),
+        "last_run_iso": iso(max((x["created_at"] for x in latest_values), default=None)),
+    }
+
+
+def public_proof():
+    evidence = lab_evidence_summary(100)
+    with db() as conn:
         checks = conn.execute("SELECT COUNT(*) AS c FROM snapshots").fetchone()["c"]
         monitors = conn.execute("SELECT COUNT(*) AS c FROM monitors").fetchone()["c"]
         proof_row = conn.execute(
@@ -992,8 +1055,6 @@ def public_proof():
                ORDER BY e.id DESC LIMIT 3"""
         ).fetchall()
 
-    latest = [dict(r) for r in latest_rows]
-    stable_values = [r for r in latest if r.get("stable") is not None]
     proof_monitor = serialize_monitor(proof_row) if proof_row else None
     proof_events = []
     for row in recent_events:
@@ -1001,19 +1062,21 @@ def public_proof():
         item["created_at_iso"] = iso(item["created_at"])
         proof_events.append(item)
 
+    latest = evidence["latest"]
     return {
         "lab_targets": len(latest),
         "lab_passed": sum(1 for r in latest if r.get("ok")),
-        "lab_pass_rate": round(sum(1 for r in latest if r.get("ok")) / len(latest) * 100, 1) if latest else None,
-        "lab_stability_rate": round(
-            sum(1 for r in stable_values if r.get("stable")) / len(stable_values) * 100,
-            1,
-        ) if stable_values else None,
+        "lab_pass_rate": evidence["latest_pass_rate"],
+        "lab_stability_rate": evidence["latest_stability_rate"],
+        "rolling_samples": evidence["samples"],
+        "rolling_pass_rate": evidence["rolling_pass_rate"],
+        "rolling_stability_rate": evidence["rolling_stability_rate"],
         "checks": checks,
         "monitors": monitors,
         "proof_monitor": proof_monitor,
         "proof_events": proof_events,
         "lab_latest": latest[:8],
+        "lab_per_target": evidence["per_target"],
     }
 
 
@@ -1284,28 +1347,18 @@ def report():
 
 @app.get("/api/lab")
 def reliability_lab():
-    with db() as conn:
-        rows = conn.execute(
-            """SELECT * FROM lab_runs ORDER BY created_at DESC LIMIT 40"""
-        ).fetchall()
-    latest = {}
-    for row in rows:
-        d = dict(row)
-        if d["target"] not in latest:
-            d["created_at_iso"] = iso(d["created_at"])
-            d["ok"] = bool(d["ok"])
-            d["stable"] = None if d.get("stable") is None else bool(d["stable"])
-            latest[d["target"]] = d
-    values = list(latest.values())
-    stability_values = [v for v in values if v.get("stable") is not None]
+    evidence = lab_evidence_summary(100)
     return jsonify({
-        "last_run_iso": iso(max((v["created_at"] for v in values), default=None)),
-        "targets": values,
-        "pass_rate": round(sum(1 for v in values if v["ok"]) / len(values) * 100, 1) if values else None,
-        "stability_rate": round(
-            sum(1 for v in stability_values if v["stable"]) / len(stability_values) * 100,
-            1
-        ) if stability_values else None,
+        "last_run_iso": evidence["last_run_iso"],
+        "targets": evidence["latest"],
+        "pass_rate": evidence["latest_pass_rate"],
+        "stability_rate": evidence["latest_stability_rate"],
+        "rolling": {
+            "samples": evidence["samples"],
+            "pass_rate": evidence["rolling_pass_rate"],
+            "stability_rate": evidence["rolling_stability_rate"],
+            "targets": evidence["per_target"],
+        },
     })
 
 
