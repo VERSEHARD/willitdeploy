@@ -64,18 +64,6 @@
 
     <section class="pp-content">
       <div class="pp-view active" id="view-overview">
-        <div class="pp-hero">
-          <div>
-            <span class="pp-kicker"><span class="pp-live-dot"></span> Monitoring is running</span>
-            <h2>Everything you asked PricePulse to watch.</h2>
-            <p>Current state, recent signals, and the evidence behind each change.</p>
-          </div>
-          <div class="pp-hero-actions">
-            <button class="btn btn-light" data-bs-toggle="modal" data-bs-target="#newMonitor"><i class="ti ti-radar me-1"></i> Monitor a page</button>
-            <a class="btn btn-outline-light" href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=pricepulse.yml">Managed setup</a>
-          </div>
-        </div>
-
         <div class="pp-metrics">
           <article class="pp-metric-card">
             <div class="pp-metric-icon"><i class="ti ti-radar"></i></div>
@@ -207,10 +195,10 @@
         </div>
 
         <div class="pp-lab-summary">
-          <div><span>Reachability</span><strong id="labPassRate">—</strong></div>
-          <div><span>Noise stability</span><strong id="labStability">—</strong></div>
-          <div><span>Targets</span><strong id="labTargets">0</strong></div>
-          <div><span>Last run</span><strong id="labLastRun">—</strong></div>
+          <div><span>Current reachability</span><strong id="labPassRate">—</strong><small id="labPassRolling">rolling —</small></div>
+          <div><span>Current stability</span><strong id="labStability">—</strong><small id="labStabilityRolling">rolling —</small></div>
+          <div><span>Evidence checks</span><strong id="labSamples">0</strong><small id="labTargets">0 targets</small></div>
+          <div><span>Last run</span><strong id="labLastRun">—</strong><small>production fetches</small></div>
         </div>
 
         <div id="labCards" class="row g-4"></div>
@@ -231,7 +219,7 @@
 
         <div class="pp-panel mt-4">
           <div class="pp-panel-head">
-            <div><span class="pp-panel-kicker">PRODUCT THESIS</span><h3>What we are testing for</h3></div>
+            <div><span class="pp-panel-kicker">ENGINEERING STANDARD</span><h3>What makes a monitor acceptable</h3></div>
           </div>
           <div class="pp-thesis-grid">
             <div><i class="ti ti-clock-24"></i><strong>Continuous execution</strong><span>The value is checking while the customer is offline, not explaining an error after it happens.</span></div>
