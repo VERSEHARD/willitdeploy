@@ -111,7 +111,8 @@ def migrate_schema():
             "last_latency_ms": "INTEGER",
             "avg_latency_ms": "REAL",
             "last_change_at": "INTEGER",
-            "is_demo": "INTEGER NOT NULL DEFAULT 0"
+            "is_demo": "INTEGER NOT NULL DEFAULT 0",
+            "last_availability": "TEXT"
         }
         for name, ddl in additions.items():
             if name not in cols:
@@ -284,6 +285,93 @@ def detect_currency(text):
     return None
 
 
+def extract_structured_product(html):
+    """Best-effort extraction from ecommerce metadata before falling back to visible text."""
+    soup = BeautifulSoup(html, "html.parser")
+    result = {"price": None, "currency": None, "availability": None, "source": None}
+
+    price_selectors = [
+        ('meta[property="product:price:amount"]', "content"),
+        ('meta[property="og:price:amount"]', "content"),
+        ('meta[itemprop="price"]', "content"),
+        ('[itemprop="price"]', "content"),
+    ]
+    for selector, attr in price_selectors:
+        node = soup.select_one(selector)
+        if not node:
+            continue
+        raw = node.get(attr) or node.get_text(" ", strip=True)
+        if not raw:
+            continue
+        cleaned = re.sub(r"[^0-9.\-]", "", raw.replace(",", ""))
+        try:
+            result["price"] = float(cleaned)
+            result["source"] = selector
+            break
+        except ValueError:
+            pass
+
+    currency_node = (
+        soup.select_one('meta[property="product:price:currency"]')
+        or soup.select_one('meta[property="og:price:currency"]')
+        or soup.select_one('meta[itemprop="priceCurrency"]')
+        or soup.select_one('[itemprop="priceCurrency"]')
+    )
+    if currency_node:
+        raw = currency_node.get("content") or currency_node.get_text(" ", strip=True)
+        if raw:
+            result["currency"] = raw.strip().upper()[:8]
+
+    availability_node = soup.select_one('[itemprop="availability"]')
+    if availability_node:
+        raw = availability_node.get("href") or availability_node.get("content") or availability_node.get_text(" ", strip=True)
+        if raw:
+            result["availability"] = raw.split("/")[-1].strip()
+
+    def visit(value):
+        if isinstance(value, dict):
+            type_value = value.get("@type")
+            types = type_value if isinstance(type_value, list) else [type_value]
+            if any(t in {"Offer", "AggregateOffer", "Product"} for t in types if t):
+                offers = value.get("offers")
+                if isinstance(offers, dict):
+                    visit(offers)
+                elif isinstance(offers, list):
+                    for item in offers:
+                        visit(item)
+
+                if result["price"] is None:
+                    for key in ("price", "lowPrice", "highPrice"):
+                        if value.get(key) not in (None, ""):
+                            try:
+                                result["price"] = float(str(value[key]).replace(",", ""))
+                                result["source"] = "json-ld"
+                                break
+                            except ValueError:
+                                pass
+                if result["currency"] is None and value.get("priceCurrency"):
+                    result["currency"] = str(value["priceCurrency"]).upper()[:8]
+                if result["availability"] is None and value.get("availability"):
+                    result["availability"] = str(value["availability"]).split("/")[-1]
+            for child in value.values():
+                if isinstance(child, (dict, list)):
+                    visit(child)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    for script in soup.select('script[type="application/ld+json"]'):
+        raw = script.string or script.get_text()
+        if not raw:
+            continue
+        try:
+            visit(json.loads(raw))
+        except Exception:
+            continue
+
+    return result
+
+
 def apply_ignore_regex(text, pattern):
     if not pattern:
         return text
@@ -364,8 +452,15 @@ def run_monitor(monitor_id):
         content = apply_ignore_regex(content, m.get("ignore_regex"))
         excerpt = content[:1000]
         digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        price = extract_price(content, m["price_regex"])
-        currency = m.get("currency") or detect_currency(content)
+        structured = extract_structured_product(html)
+        if m["price_regex"] or m["selector"]:
+            price = extract_price(content, m["price_regex"])
+        else:
+            price = structured.get("price")
+            if price is None:
+                price = extract_price(content, None)
+        currency = m.get("currency") or structured.get("currency") or detect_currency(content)
+        availability = structured.get("availability")
         keyword_ok = True if not m["must_contain"] else m["must_contain"].lower() in content.lower()
         threshold_ok = True if m["max_price"] is None else (price is not None and price <= float(m["max_price"]))
 
@@ -393,6 +488,20 @@ def run_monitor(monitor_id):
             and m["last_price"] is not None
             and abs(float(price) - float(m["last_price"])) > 0.000001
         )
+        def in_stock(value):
+            if not value:
+                return None
+            normalized = str(value).lower()
+            if "outofstock" in normalized or "out of stock" in normalized or "soldout" in normalized:
+                return False
+            if "instock" in normalized or "in stock" in normalized or "limitedavailability" in normalized:
+                return True
+            return None
+
+        stock_now = in_stock(availability)
+        stock_before = in_stock(m.get("last_availability"))
+        stock_became_available = m.get("kind") == "stock" and stock_now is True and stock_before is False
+        stock_became_unavailable = m.get("kind") == "stock" and stock_now is False and stock_before is True
 
         event_types = []
         if changed:
@@ -405,6 +514,10 @@ def run_monitor(monitor_id):
             event_types.append("keyword_match")
         if keyword_became_false:
             event_types.append("keyword_lost")
+        if stock_became_available:
+            event_types.append("stock_available")
+        if stock_became_unavailable:
+            event_types.append("stock_unavailable")
 
         next_check = checked + int(m["interval_min"]) * 60
         checks_count = int(m.get("checks_count") or 0) + 1
@@ -418,6 +531,8 @@ def run_monitor(monitor_id):
             "diff": diff_lines,
             "price": price,
             "currency": currency,
+            "availability": availability,
+            "structured_source": structured.get("source"),
             "url": final_url,
         }
 
@@ -428,7 +543,7 @@ def run_monitor(monitor_id):
                        last_price=?,last_error=NULL,change_count=change_count+?,
                        checks_count=?,success_count=?,last_latency_ms=?,avg_latency_ms=?,
                        last_change_at=CASE WHEN ?=1 THEN ? ELSE last_change_at END,
-                       currency=COALESCE(currency,?)
+                       currency=COALESCE(currency,?),last_availability=?
                    WHERE id=?""",
                 (
                     checked,
@@ -445,6 +560,7 @@ def run_monitor(monitor_id):
                     1 if event_types else 0,
                     checked,
                     currency,
+                    availability,
                     monitor_id,
                 ),
             )
@@ -488,6 +604,8 @@ def run_monitor(monitor_id):
                     "price_threshold": f"Price reached target: {currency + ' ' if currency else ''}{price}",
                     "keyword_match": f"Keyword appeared: {m['must_contain']}",
                     "keyword_lost": f"Keyword disappeared: {m['must_contain']}",
+                    "stock_available": "Product became available.",
+                    "stock_unavailable": "Product became unavailable.",
                 }[event_type]
                 emit_event(conn, monitor_id, event_type, summary, json.dumps(detail_payload))
 
@@ -502,6 +620,7 @@ def run_monitor(monitor_id):
                     "events": event_types,
                     "price": price,
                     "currency": currency,
+                    "availability": availability,
                     "max_price": m["max_price"],
                     "keyword_ok": keyword_ok,
                     "threshold_ok": threshold_ok,
@@ -518,6 +637,8 @@ def run_monitor(monitor_id):
             "events": event_types,
             "price": price,
             "currency": currency,
+            "availability": availability,
+            "structured_source": structured.get("source"),
             "keyword_ok": keyword_ok,
             "threshold_ok": threshold_ok,
             "latency_ms": latency_ms,
@@ -847,9 +968,27 @@ def probe_page():
         status, final_url, html = fetch_page(url)
         latency_ms = int((time.perf_counter() - started) * 1000)
         content = extract_content(html, selector)
-        price = extract_price(content, str(payload.get("price_regex") or "").strip() or None)
+        explicit_regex = str(payload.get("price_regex") or "").strip() or None
+        structured = extract_structured_product(html)
+        price = extract_price(content, explicit_regex) if explicit_regex or selector else structured.get("price")
+        if price is None:
+            price = extract_price(content, explicit_regex)
         soup = BeautifulSoup(html, "html.parser")
         title = normalize_text(soup.title.get_text(" ", strip=True)) if soup.title else None
+        script_count = len(soup.find_all("script"))
+        client_shell = len(content) < 120 and script_count >= 8
+        anti_bot = status in {401, 403, 429} or any(
+            phrase in (title or "").lower()
+            for phrase in ("just a moment", "access denied", "verify you are human")
+        )
+        if anti_bot:
+            monitorability = "blocked"
+        elif client_shell:
+            monitorability = "browser-needed"
+        elif status == 200 and len(content) >= 40:
+            monitorability = "good"
+        else:
+            monitorability = "limited"
         return jsonify({
             "ok": True,
             "http_status": status,
@@ -857,10 +996,13 @@ def probe_page():
             "title": title,
             "latency_ms": latency_ms,
             "content_chars": len(content),
+            "script_count": script_count,
             "price": price,
-            "currency": detect_currency(content),
+            "currency": structured.get("currency") or detect_currency(content),
+            "availability": structured.get("availability"),
+            "structured_source": structured.get("source"),
             "preview": content[:700],
-            "monitorability": "good" if status == 200 and len(content) >= 40 else "limited",
+            "monitorability": monitorability,
         })
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc), "monitorability": "failed"}), 400
