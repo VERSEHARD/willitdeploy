@@ -12,9 +12,9 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-from scanner import scan_repo, scan_fixture, regression_checks, quick_npm_probe
+from scanner import scan_repo, scan_fixture, regression_checks, quick_npm_probe, repair_npm11_lockfile
 
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.5.0"
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -52,7 +52,7 @@ executor = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("SCAN_WORKERS", "
 write_lock = threading.Lock()
 
 
-RESEARCH_BATCH_ID = "npm11-screen-002"
+RESEARCH_BATCH_ID = "npm11-repair-003"
 RESEARCH_STATE_PATH = DATA_DIR / "research_state.json"
 research_state_lock = threading.Lock()
 research_thread_started = False
@@ -83,13 +83,19 @@ def research_default_state():
         "targets_total": len(RESEARCH_TARGETS),
         "probe_completed": 0,
         "confirm_completed": 0,
+        "repair_completed": 0,
         "candidates": 0,
         "confirmed": 0,
+        "repair_verified": 0,
         "money_earned_usd": 0,
         "monetization_gate": "Need reproducible independent compatibility failures before selling anything.",
         "results": [],
         "confirmations": [],
-        "notes": ["Quick probes use npm ci --dry-run --ignore-scripts; target lifecycle scripts are not executed."],
+        "repairs": [],
+        "notes": [
+            "Quick probes use npm ci --dry-run --ignore-scripts; target lifecycle scripts are not executed.",
+            "Repair validation only allows package-lock.json to change and verifies npm 10 + npm 11 afterwards."
+        ],
     }
 
 
@@ -223,15 +229,80 @@ def research_worker():
         state["confirmed"] = sum(1 for x in state["confirmations"] if x.get("confirmed"))
         write_research_state(state)
 
+    # Turn the compatibility finding into a concrete deliverable: a verified
+    # package-lock-only patch. This is the first thing we can plausibly sell.
+    state["stage"] = "repair_validation"
+    write_research_state(state)
+
+    confirmed_repos = {x.get("repo") for x in state["confirmations"] if x.get("confirmed")}
+    repair_targets = [t for t in candidates[:4] if t["repo"].replace("https://github.com/", "") in confirmed_repos]
+    patch_dir = DATA_DIR / "research_patches" / RESEARCH_BATCH_ID
+    patch_dir.mkdir(parents=True, exist_ok=True)
+
+    for idx, target in enumerate(repair_targets, start=1):
+        slug = target["repo"].replace("https://github.com/", "")
+        state["current"] = {
+            "phase": "repair_validation",
+            "index": idx,
+            "total": len(repair_targets),
+            "repo": slug,
+            "label": target["label"],
+        }
+        write_research_state(state)
+
+        try:
+            repaired = repair_npm11_lockfile(
+                repo_url=target["repo"],
+                branch=target["branch"],
+                project_path=target["project_path"],
+                work_root=WORK_DIR,
+                runtime_root=RUNTIME_DIR,
+                node_major=22,
+                npm_old="10.9.9",
+                npm_new="11.19.0",
+            )
+            patch_name = None
+            if repaired.get("verified") and repaired.get("patch"):
+                patch_name = slug.replace("/", "__") + ".patch"
+                (patch_dir / patch_name).write_text(repaired["patch"], encoding="utf-8")
+            repair_item = {
+                "repo": slug,
+                "status": repaired.get("status"),
+                "verified": bool(repaired.get("verified")),
+                "reason": repaired.get("reason"),
+                "changed_paths": repaired.get("changed_paths", []),
+                "patch_bytes": repaired.get("patch_bytes", 0),
+                "additions": repaired.get("additions", 0),
+                "deletions": repaired.get("deletions", 0),
+                "before": repaired.get("before"),
+                "after": repaired.get("after"),
+                "patch_file": patch_name,
+            }
+        except Exception as exc:
+            repair_item = {
+                "repo": slug,
+                "status": "error",
+                "verified": False,
+                "error": str(exc),
+                "patch_file": None,
+            }
+
+        state["repairs"].append(repair_item)
+        state["repair_completed"] = idx
+        state["repair_verified"] = sum(1 for x in state["repairs"] if x.get("verified"))
+        write_research_state(state)
+
     state["current"] = None
     state["status"] = "completed"
     state["stage"] = "done"
     state["finished_at"] = now_ts()
 
-    if state["confirmed"] >= 3:
-        state["monetization_gate"] = "PASSED: at least 3 independent npm 10→11 breaks reproduced. Next: package the compatibility report and test willingness to pay."
+    if state["repair_verified"] >= 3:
+        state["monetization_gate"] = "PASSED: multiple independent npm 11 failures reproduced AND automatically repaired with verified package-lock-only patches. Product candidate: $1 verified npm 11 lockfile repair."
+    elif state["confirmed"] >= 3:
+        state["monetization_gate"] = "PARTIAL: failures reproduce, but automatic repair is not reliable enough to sell yet."
     elif state["confirmed"] >= 1:
-        state["monetization_gate"] = "PARTIAL: reproducible failures exist, but sample is too small for a paid dataset claim."
+        state["monetization_gate"] = "PARTIAL: reproducible failures exist, but sample is too small for a paid claim."
     else:
         state["monetization_gate"] = "FAILED: this batch did not reproduce enough independent npm 10→11 breaks. Change hypothesis."
     write_research_state(state)
@@ -358,8 +429,9 @@ def ensure_research_started():
 @app.get("/api/research/status")
 def research_status():
     state = read_research_state()
-    completed = int(state.get("probe_completed", 0)) + int(state.get("confirm_completed", 0))
-    total = int(state.get("targets_total", 0)) + min(4, int(state.get("candidates", 0)))
+    completed = int(state.get("probe_completed", 0)) + int(state.get("confirm_completed", 0)) + int(state.get("repair_completed", 0))
+    repair_target_count = min(4, int(state.get("confirmed", 0)))
+    total = int(state.get("targets_total", 0)) + min(4, int(state.get("candidates", 0))) + repair_target_count
     state["progress_completed"] = completed
     state["progress_total"] = max(total, int(state.get("targets_total", 0)))
     state["progress_percent"] = round((completed / state["progress_total"] * 100), 1) if state["progress_total"] else 0
