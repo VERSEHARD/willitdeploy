@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for trying the WillItDeploy launch experiment.
 
-        We first reproduce your failure. If it is not the repairable npm 10 → npm 11 lockfile-mismatch class, you do not pay.
+        We reproduce the npm 10.9.9 pass / npm 11.19.0 failure, refresh only package-lock.json with lifecycle scripts disabled, and verify the result under both versions. A simple refresh that does not fix the failure is rejected. The $1 charge applies only to a verified patch.
   - type: input
     id: repo
     attributes:
@@ -51,5 +51,5 @@ body:
     attributes:
       label: Verification
       options:
-        - label: I understand this request is for a public repository and the launch repair costs $1 only after WillItDeploy confirms it can produce a verified patch.
+        - label: I understand this request is for a public repository. I pay $1 only for a package-lock.json-only patch verified under both npm 10.9.9 and npm 11.19.0; otherwise there is no charge.
           required: true
