@@ -41,7 +41,7 @@
                   <div class="col-6"><div class="h1 mb-0">{{ confirmed }}</div><div class="text-secondary">confirmed</div></div>
                   <div class="col-6"><div class="h1 mb-0">{{ repair_verified }}</div><div class="text-secondary">repairs verified</div></div>
                 </div>
-                <p class="text-secondary small mb-0 mt-3">3 of 4 reproduced failures were repaired and verified. The fourth was rejected when a simple refresh did not fix it.</p>
+                <p class="text-secondary small mb-0 mt-3">3 of 4 reproduced failures passed both npm versions after repair in lockfile-resolution dry runs. The fourth was rejected when a simple refresh did not fix it.</p>
               </div>
             </div>
           </div>
@@ -66,6 +66,7 @@
               <div class="card-body text-secondary">
                 <p>We reproduce the split, refresh <strong>only</strong> <code>package-lock.json</code> with lifecycle scripts disabled, and reject any patch that changes another tracked file.</p>
                 <p>We then verify the repaired lockfile under both <strong>npm 10.9.9</strong> and <strong>npm 11.19.0</strong>. If a simple refresh does not fix the failure, we reject it.</p>
+                <p>Verification uses <code>npm ci --dry-run --ignore-scripts --no-audit --no-fund</code>. This checks lockfile resolution; it does not certify a full install, lifecycle scripts, tests, or your application build.</p>
                 <p class="mb-0"><strong>$1 for a verified patch</strong> with before/after evidence. No charge if your repo does not match or either verification fails.</p>
               </div>
             </div>
