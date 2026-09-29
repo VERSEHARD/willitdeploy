@@ -1,591 +1,546 @@
-import json
 import os
-import platform
-import shutil
-import sqlite3
-import threading
+import re
+import json
 import time
-import uuid
-import tempfile
-from concurrent.futures import ThreadPoolExecutor
+import hashlib
+import shutil
+import threading
+import zipfile
+import mimetypes
+import xml.etree.ElementTree as ET
 from pathlib import Path
+from urllib.parse import urljoin, urlparse, urldefrag, unquote
+from urllib import robotparser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from flask import Flask, jsonify, render_template, request
-from werkzeug.middleware.dispatcher import DispatcherMiddleware
-
-from scanner import scan_repo, scan_fixture, regression_checks, quick_npm_probe, repair_npm11_lockfile
-from monitor.app import app as pricepulse_app
-
-APP_VERSION = "0.5.1"
-BASE_DIR = Path(__file__).resolve().parent
-
-
-def pick_data_dir() -> Path:
-    configured = os.getenv("DATA_DIR", "/data")
-    p = Path(configured)
-    try:
-        p.mkdir(parents=True, exist_ok=True)
-        probe = p / ".write-test"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink(missing_ok=True)
-        return p
-    except Exception:
-        fallback = BASE_DIR / "data"
-        fallback.mkdir(parents=True, exist_ok=True)
-        return fallback
-
-
-DATA_DIR = pick_data_dir()
-DB_PATH = DATA_DIR / "willitdeploy.sqlite3"
-
-# Build workspaces and downloaded Node runtimes are intentionally ephemeral.
-# Railway volumes can be small; using /tmp keeps large runtime tarballs/extracts
-# off the persistent volume while preserving only the lightweight SQLite history.
-TEMP_STORAGE_DIR = Path(
-    os.getenv("TEMP_STORAGE_DIR", str(Path(tempfile.gettempdir()) / "willitdeploy"))
-)
-WORK_DIR = TEMP_STORAGE_DIR / "work"
-RUNTIME_DIR = TEMP_STORAGE_DIR / "runtimes"
-WORK_DIR.mkdir(parents=True, exist_ok=True)
-RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+import requests
+from bs4 import BeautifulSoup
+from flask import Flask, jsonify, send_file, Response, request
 
 app = Flask(__name__)
-executor = ThreadPoolExecutor(max_workers=max(1, int(os.getenv("SCAN_WORKERS", "1"))))
-write_lock = threading.Lock()
+application = app
+
+TARGET_URL = os.getenv("TARGET_URL", "https://www.grownbrilliance.com/").rstrip("/") + "/"
+DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
+CAPTURE_DIR = DATA_DIR / "grown-brilliance-public"
+ZIP_PATH = DATA_DIR / "grown-brilliance-public.zip"
+MAX_PAGES = int(os.getenv("MAX_PAGES", "5000"))
+MAX_ASSETS = int(os.getenv("MAX_ASSETS", "15000"))
+PAGE_WORKERS = int(os.getenv("PAGE_WORKERS", "10"))
+ASSET_WORKERS = int(os.getenv("ASSET_WORKERS", "14"))
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "20"))
+AUTO_START = os.getenv("AUTO_START", "1") == "1"
+FORCE_RECRAWL = os.getenv("FORCE_RECRAWL", "1") == "1"
+USER_AGENT = os.getenv(
+    "CRAWLER_USER_AGENT",
+    "Mozilla/5.0 (compatible; VediReferenceCapture/1.0; public-storefront-archiver)"
+)
+
+TARGET_HOST = urlparse(TARGET_URL).netloc.lower()
+TARGET_ROOT = TARGET_HOST[4:] if TARGET_HOST.startswith("www.") else TARGET_HOST
+ASSET_HOST_SUFFIXES = tuple(
+    x.strip().lower()
+    for x in os.getenv(
+        "ASSET_HOST_SUFFIXES",
+        f"{TARGET_ROOT},cdn.shopify.com,shopifycdn.net,cdn.shopifycdn.net,fonts.googleapis.com,fonts.gstatic.com"
+    ).split(",")
+    if x.strip()
+)
+
+state_lock = threading.Lock()
+crawl_lock = threading.Lock()
+state = {
+    "status": "idle",
+    "started_at": None,
+    "finished_at": None,
+    "pages_discovered": 0,
+    "pages_saved": 0,
+    "assets_discovered": 0,
+    "assets_saved": 0,
+    "errors": 0,
+    "message": "Waiting to start",
+    "zip_path": str(ZIP_PATH),
+}
 
 
-RESEARCH_BATCH_ID = "npm11-repair-004"
-RESEARCH_STATE_PATH = DATA_DIR / "research_state.json"
-research_state_lock = threading.Lock()
-research_thread_started = False
-
-RESEARCH_TARGETS = [
-    {"repo": "https://github.com/Crypto-Mikael/tailwind-material", "branch": "main", "project_path": ".", "label": "positive control"},
-    {"repo": "https://github.com/Ontotext-AD/graphdb.js", "branch": None, "project_path": None, "label": "confirmed npm11 mismatch control"},
-    {"repo": "https://github.com/timkindberg/formframe", "branch": None, "project_path": None, "label": "reported npm11 esbuild optional mismatch"},
-    {"repo": "https://github.com/jQuinRivero/palimpsest", "branch": None, "project_path": "frontend", "label": "reported npm11.8+ lockfile rejection"},
-    {"repo": "https://github.com/ruvnet/metaharness", "branch": None, "project_path": None, "label": "reported npm10 pass/npm11 fail"},
-    {"repo": "https://github.com/dmccoystephenson/atomic-core", "branch": None, "project_path": None, "label": "reported npm11 emnapi lock mismatch"},
-    {"repo": "https://github.com/ConductionNL/versioniq", "branch": "development", "project_path": None, "label": "reported npm10/npm11 toolchain drift"},
-    {"repo": "https://github.com/mei-shui-xing/galatea-garden-chatgpt-wake-mcp", "branch": None, "project_path": None, "label": "reported npm11 wasi lock mismatch"},
-    {"repo": "https://github.com/cheeriojs/cheerio", "branch": "main", "project_path": ".", "label": "negative control"},
-    {"repo": "https://github.com/uuidjs/uuid", "branch": "main", "project_path": ".", "label": "modern npm control"},
-]
+def set_state(**kwargs):
+    with state_lock:
+        state.update(kwargs)
 
 
-def research_default_state():
-    return {
-        "batch_id": RESEARCH_BATCH_ID,
-        "status": "pending",
-        "stage": "queued",
-        "started_at": None,
-        "updated_at": now_ts(),
-        "finished_at": None,
-        "current": None,
-        "targets_total": len(RESEARCH_TARGETS),
-        "probe_completed": 0,
-        "confirm_completed": 0,
-        "repair_completed": 0,
-        "candidates": 0,
-        "confirmed": 0,
-        "repair_verified": 0,
-        "money_earned_usd": 0,
-        "monetization_gate": "Need reproducible independent compatibility failures before selling anything.",
-        "results": [],
-        "confirmations": [],
-        "repairs": [],
-        "notes": [
-            "Quick probes use npm ci --dry-run --ignore-scripts; target lifecycle scripts are not executed.",
-            "Repair validation only allows package-lock.json to change and verifies npm 10 + npm 11 afterwards."
-        ],
-    }
+def inc_state(key, amount=1):
+    with state_lock:
+        state[key] = int(state.get(key, 0)) + amount
 
 
-def read_research_state():
-    with research_state_lock:
-        if not RESEARCH_STATE_PATH.exists():
-            return research_default_state()
-        try:
-            data = json.loads(RESEARCH_STATE_PATH.read_text(encoding="utf-8"))
-            if data.get("batch_id") != RESEARCH_BATCH_ID:
-                return research_default_state()
-            return data
-        except Exception:
-            return research_default_state()
+def snapshot_state():
+    with state_lock:
+        return dict(state)
 
 
-def write_research_state(state):
-    state["updated_at"] = now_ts()
-    tmp = RESEARCH_STATE_PATH.with_suffix(".tmp")
-    with research_state_lock:
-        tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
-        tmp.replace(RESEARCH_STATE_PATH)
-
-
-def research_worker():
-    state = read_research_state()
-    if state.get("status") == "completed":
-        return
-
-    state = research_default_state()
-    state["status"] = "running"
-    state["stage"] = "screening"
-    state["started_at"] = now_ts()
-    write_research_state(state)
-
-    candidates = []
-    for idx, target in enumerate(RESEARCH_TARGETS, start=1):
-        state["current"] = {
-            "phase": "screening",
-            "index": idx,
-            "total": len(RESEARCH_TARGETS),
-            "repo": target["repo"].replace("https://github.com/", ""),
-            "label": target["label"],
-        }
-        write_research_state(state)
-        try:
-            result = quick_npm_probe(
-                repo_url=target["repo"],
-                branch=target["branch"],
-                project_path=target["project_path"],
-                work_root=WORK_DIR,
-                runtime_root=RUNTIME_DIR,
-                node_majors=[22],
-                npm_versions=["10.9.9", "11.19.0"],
-            )
-            item = {
-                "repo": result.get("repo"),
-                "label": target["label"],
-                "classification": result.get("classification"),
-                "status": result.get("status"),
-                "repo_size_mb": result.get("repo_size_mb"),
-                "project_path": result.get("project_path"),
-                "matrix": result.get("matrix", []),
-            }
-            if result.get("classification") == "npm11_break_candidate":
-                candidates.append(target)
-        except Exception as exc:
-            item = {
-                "repo": target["repo"].replace("https://github.com/", ""),
-                "label": target["label"],
-                "classification": "probe_error",
-                "status": "error",
-                "error": str(exc),
-                "matrix": [],
-            }
-
-        state["results"].append(item)
-        state["probe_completed"] = idx
-        state["candidates"] = len(candidates)
-        write_research_state(state)
-
-    state["stage"] = "confirmation"
-    write_research_state(state)
-
-    # Confirm up to four npm-11 break candidates across three Node majors.
-    # Confirmation still uses dry-run + ignore-scripts so arbitrary repo scripts never execute.
-    for idx, target in enumerate(candidates[:4], start=1):
-        state["current"] = {
-            "phase": "confirmation",
-            "index": idx,
-            "total": min(4, len(candidates)),
-            "repo": target["repo"].replace("https://github.com/", ""),
-            "label": target["label"],
-        }
-        write_research_state(state)
-        try:
-            result = quick_npm_probe(
-                repo_url=target["repo"],
-                branch=target["branch"],
-                project_path=target["project_path"],
-                work_root=WORK_DIR,
-                runtime_root=RUNTIME_DIR,
-                node_majors=[22, 24, 26],
-                npm_versions=["10.9.9", "11.19.0"],
-            )
-            rows = result.get("matrix", [])
-            npm10 = [r for r in rows if r.get("npm_requested") == "10.9.9"]
-            npm11 = [r for r in rows if r.get("npm_requested") == "11.19.0"]
-            confirmed = (
-                len(npm10) == 3 and len(npm11) == 3
-                and all(r.get("status") == "pass" for r in npm10)
-                and all(r.get("status") != "pass" for r in npm11)
-            )
-            confirmation = {
-                "repo": result.get("repo"),
-                "confirmed": confirmed,
-                "classification": result.get("classification"),
-                "matrix": rows,
-            }
-        except Exception as exc:
-            confirmation = {
-                "repo": target["repo"].replace("https://github.com/", ""),
-                "confirmed": False,
-                "classification": "confirmation_error",
-                "error": str(exc),
-                "matrix": [],
-            }
-
-        state["confirmations"].append(confirmation)
-        state["confirm_completed"] = idx
-        state["confirmed"] = sum(1 for x in state["confirmations"] if x.get("confirmed"))
-        write_research_state(state)
-
-    # Turn the compatibility finding into a concrete deliverable: a verified
-    # package-lock-only patch. This is the first thing we can plausibly sell.
-    state["stage"] = "repair_validation"
-    write_research_state(state)
-
-    confirmed_repos = {x.get("repo") for x in state["confirmations"] if x.get("confirmed")}
-    repair_targets = [t for t in candidates[:4] if t["repo"].replace("https://github.com/", "") in confirmed_repos]
-    patch_dir = DATA_DIR / "research_patches" / RESEARCH_BATCH_ID
-    patch_dir.mkdir(parents=True, exist_ok=True)
-
-    for idx, target in enumerate(repair_targets, start=1):
-        slug = target["repo"].replace("https://github.com/", "")
-        state["current"] = {
-            "phase": "repair_validation",
-            "index": idx,
-            "total": len(repair_targets),
-            "repo": slug,
-            "label": target["label"],
-        }
-        write_research_state(state)
-
-        try:
-            repaired = repair_npm11_lockfile(
-                repo_url=target["repo"],
-                branch=target["branch"],
-                project_path=target["project_path"],
-                work_root=WORK_DIR,
-                runtime_root=RUNTIME_DIR,
-                node_major=22,
-                npm_old="10.9.9",
-                npm_new="11.19.0",
-            )
-            patch_name = None
-            if repaired.get("verified") and repaired.get("patch"):
-                patch_name = slug.replace("/", "__") + ".patch"
-                (patch_dir / patch_name).write_text(repaired["patch"], encoding="utf-8")
-            repair_item = {
-                "repo": slug,
-                "status": repaired.get("status"),
-                "verified": bool(repaired.get("verified")),
-                "reason": repaired.get("reason"),
-                "changed_paths": repaired.get("changed_paths", []),
-                "patch_bytes": repaired.get("patch_bytes", 0),
-                "additions": repaired.get("additions", 0),
-                "deletions": repaired.get("deletions", 0),
-                "before": repaired.get("before"),
-                "after": repaired.get("after"),
-                "patch_file": patch_name,
-            }
-        except Exception as exc:
-            repair_item = {
-                "repo": slug,
-                "status": "error",
-                "verified": False,
-                "error": str(exc),
-                "patch_file": None,
-            }
-
-        state["repairs"].append(repair_item)
-        state["repair_completed"] = idx
-        state["repair_verified"] = sum(1 for x in state["repairs"] if x.get("verified"))
-        write_research_state(state)
-
-    state["current"] = None
-    state["status"] = "completed"
-    state["stage"] = "done"
-    state["finished_at"] = now_ts()
-
-    if state["repair_verified"] >= 3:
-        state["monetization_gate"] = "PASSED: multiple independent npm 11 failures reproduced AND automatically repaired with verified package-lock-only patches. Product candidate: $1 verified npm 11 lockfile repair."
-    elif state["confirmed"] >= 3:
-        state["monetization_gate"] = "PARTIAL: failures reproduce, but automatic repair is not reliable enough to sell yet."
-    elif state["confirmed"] >= 1:
-        state["monetization_gate"] = "PARTIAL: reproducible failures exist, but sample is too small for a paid claim."
-    else:
-        state["monetization_gate"] = "FAILED: this batch did not reproduce enough independent npm 10→11 breaks. Change hypothesis."
-    write_research_state(state)
-
-
-def start_research_thread_once():
-    global research_thread_started
-    if research_thread_started:
-        return
-    research_thread_started = True
-
-    # Persist the new batch immediately before the worker starts. This makes
-    # deployment/startup observable even if the first request arrives during
-    # Railway health checks or a previous persisted batch exists on /data.
-    state = read_research_state()
-    if state.get("status") != "completed":
-        seed = research_default_state()
-        seed["status"] = "running"
-        seed["stage"] = "starting"
-        seed["started_at"] = now_ts()
-        write_research_state(seed)
-
-    thread = threading.Thread(target=research_worker, name="wid-research", daemon=True)
-    thread.start()
-
-
-def db_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db():
-    with db_conn() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS scans (
-                id TEXT PRIMARY KEY,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                repo_url TEXT NOT NULL,
-                branch TEXT,
-                project_path TEXT,
-                mode TEXT NOT NULL,
-                runtimes TEXT NOT NULL,
-                status TEXT NOT NULL,
-                summary TEXT,
-                result_json TEXT,
-                error TEXT
-            )
-            """
-        )
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(scans)").fetchall()}
-        if "project_path" not in cols:
-            conn.execute("ALTER TABLE scans ADD COLUMN project_path TEXT")
-        conn.commit()
-
-
-init_db()
-try:
-    os.chmod(DB_PATH, 0o600)
-except OSError:
-    pass
-
-
-def now_ts() -> int:
-    return int(time.time())
-
-
-def require_token():
-    expected = os.getenv("SCAN_TOKEN", "").strip()
-    if not expected:
+def normalize_url(url, base=None):
+    if not url:
         return None
-    supplied = (request.headers.get("X-Scan-Token") or "").strip()
-    if supplied != expected:
-        return jsonify({"error": "Invalid or missing scan token"}), 401
-    return None
+    if base:
+        url = urljoin(base, url)
+    url, _ = urldefrag(url)
+    p = urlparse(url)
+    if p.scheme not in ("http", "https"):
+        return None
+    return url
 
 
-def update_scan(scan_id: str, **fields):
-    if not fields:
-        return
-    fields["updated_at"] = now_ts()
-    with write_lock, db_conn() as conn:
-        parts = ", ".join(f"{k} = ?" for k in fields)
-        values = list(fields.values()) + [scan_id]
-        conn.execute(f"UPDATE scans SET {parts} WHERE id = ?", values)
-        conn.commit()
+def is_target_page(url):
+    host = urlparse(url).netloc.lower()
+    return host == TARGET_ROOT or host == f"www.{TARGET_ROOT}"
 
 
-def worker(scan_id: str, repo_url: str, branch: str | None, project_path: str | None, mode: str, runtimes: list[int]):
+def is_allowed_asset(url):
+    host = urlparse(url).netloc.lower()
+    return any(host == suffix or host.endswith("." + suffix) for suffix in ASSET_HOST_SUFFIXES)
+
+
+def safe_component(value):
+    value = unquote(value)
+    value = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
+    return value[:180] or "_"
+
+
+def page_path(url):
+    p = urlparse(url)
+    host = safe_component(p.netloc)
+    raw = p.path or "/"
+    parts = [safe_component(x) for x in raw.split("/") if x]
+    if raw.endswith("/") or not parts:
+        parts.append("index")
+    elif "." not in parts[-1]:
+        parts.append("index")
+    if p.query:
+        qhash = hashlib.sha1(p.query.encode("utf-8")).hexdigest()[:10]
+        stem, ext = os.path.splitext(parts[-1])
+        parts[-1] = f"{stem}__q_{qhash}{ext or '.html'}"
+    elif not os.path.splitext(parts[-1])[1]:
+        parts[-1] += ".html"
+    elif parts[-1] == "index":
+        parts[-1] = "index.html"
+    return CAPTURE_DIR / "pages" / host / Path(*parts)
+
+
+def asset_path(url, content_type=None):
+    p = urlparse(url)
+    host = safe_component(p.netloc)
+    raw_parts = [safe_component(x) for x in p.path.split("/") if x]
+    if not raw_parts:
+        raw_parts = ["index"]
+    name = raw_parts[-1]
+    if "." not in name:
+        ext = mimetypes.guess_extension((content_type or "").split(";")[0].strip()) or ".bin"
+        name += ext
+        raw_parts[-1] = name
+    if p.query:
+        qhash = hashlib.sha1(p.query.encode("utf-8")).hexdigest()[:10]
+        stem, ext = os.path.splitext(raw_parts[-1])
+        raw_parts[-1] = f"{stem}__q_{qhash}{ext}"
+    return CAPTURE_DIR / "assets" / host / Path(*raw_parts)
+
+
+def write_bytes(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+
+
+def write_text(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8", errors="ignore")
+
+
+def extract_asset_urls(html, base_url):
+    soup = BeautifulSoup(html, "html.parser")
+    out = set()
+
+    attrs = [
+        ("script", "src"),
+        ("img", "src"),
+        ("source", "src"),
+        ("video", "src"),
+        ("audio", "src"),
+        ("iframe", "src"),
+    ]
+    for tag, attr in attrs:
+        for node in soup.find_all(tag):
+            u = normalize_url(node.get(attr), base_url)
+            if u:
+                out.add(u)
+
+    for node in soup.find_all("link"):
+        rel = " ".join(node.get("rel") or []).lower()
+        if any(k in rel for k in ("stylesheet", "icon", "preload", "modulepreload", "manifest")):
+            u = normalize_url(node.get("href"), base_url)
+            if u:
+                out.add(u)
+
+    for node in soup.find_all(["img", "source"]):
+        srcset = node.get("srcset") or ""
+        for item in srcset.split(","):
+            candidate = item.strip().split(" ")[0].strip()
+            u = normalize_url(candidate, base_url)
+            if u:
+                out.add(u)
+
+    return out
+
+
+def extract_css_urls(css, base_url):
+    out = set()
+    for match in re.findall(r"url\(([^)]+)\)", css, flags=re.I):
+        raw = match.strip().strip("'\"")
+        if raw.startswith("data:"):
+            continue
+        u = normalize_url(raw, base_url)
+        if u:
+            out.add(u)
+    for match in re.findall(r"@import\s+(?:url\()?['\"]?([^'\"\)\s;]+)", css, flags=re.I):
+        u = normalize_url(match, base_url)
+        if u:
+            out.add(u)
+    return out
+
+
+def get_session():
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": USER_AGENT,
+        "Accept-Language": "en-US,en;q=0.8",
+        "Accept": "*/*",
+    })
+    return s
+
+
+def fetch_text(session, url):
+    r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+    r.raise_for_status()
+    return r.text, r.url, r.headers
+
+
+def collect_sitemap_urls(session, sitemap_url, seen_sitemaps=None, depth=0):
+    if seen_sitemaps is None:
+        seen_sitemaps = set()
+    if depth > 6 or sitemap_url in seen_sitemaps:
+        return set(), seen_sitemaps
+    seen_sitemaps.add(sitemap_url)
+
     try:
-        update_scan(scan_id, status="running")
-        allow_full = os.getenv("ALLOW_FULL_BUILDS", "0") == "1"
-        if mode == "full" and not allow_full:
-            raise RuntimeError("Full builds are disabled on this server. Set ALLOW_FULL_BUILDS=1 to enable them.")
+        r = session.get(sitemap_url, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        xml = r.content
+        path = CAPTURE_DIR / "meta" / "sitemaps" / f"{hashlib.sha1(sitemap_url.encode()).hexdigest()}.xml"
+        write_bytes(path, xml)
+        root = ET.fromstring(xml)
+    except Exception:
+        inc_state("errors")
+        return set(), seen_sitemaps
 
-        npm_versions = ["10.9.9", "11.19.0"] if mode == "full" else ["bundled"]
-        result = scan_repo(
-            repo_url=repo_url,
-            branch=branch or None,
-            mode=mode,
-            node_majors=runtimes,
-            work_root=WORK_DIR,
-            runtime_root=RUNTIME_DIR,
-            project_path=project_path,
-            npm_versions=npm_versions,
+    locs = []
+    for node in root.iter():
+        if node.tag.lower().endswith("loc") and node.text:
+            locs.append(node.text.strip())
+
+    tag = root.tag.lower()
+    urls = set()
+    if tag.endswith("sitemapindex"):
+        for child in locs:
+            child_urls, seen_sitemaps = collect_sitemap_urls(
+                session, child, seen_sitemaps, depth + 1
+            )
+            urls.update(child_urls)
+    else:
+        for u in locs:
+            u = normalize_url(u)
+            if u and is_target_page(u):
+                urls.add(u)
+
+    return urls, seen_sitemaps
+
+
+def build_robot_parser(session):
+    robots_url = urljoin(TARGET_URL, "/robots.txt")
+    rp = robotparser.RobotFileParser()
+    try:
+        r = session.get(robots_url, timeout=REQUEST_TIMEOUT)
+        txt = r.text if r.ok else ""
+        write_text(CAPTURE_DIR / "meta" / "robots.txt", txt)
+        rp.set_url(robots_url)
+        rp.parse(txt.splitlines())
+    except Exception:
+        rp = None
+        inc_state("errors")
+    return rp
+
+
+def crawl_page(url, rp):
+    if rp and not rp.can_fetch(USER_AGENT, url):
+        return {"url": url, "skipped": "robots", "assets": []}
+
+    s = get_session()
+    try:
+        r = s.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+        ctype = r.headers.get("content-type", "")
+        if r.status_code >= 400 or "text/html" not in ctype.lower():
+            return {"url": url, "status": r.status_code, "assets": []}
+        html = r.text
+        dest = page_path(url)
+        write_text(dest, html)
+        assets = extract_asset_urls(html, r.url)
+        inc_state("pages_saved")
+        return {
+            "url": url,
+            "final_url": r.url,
+            "status": r.status_code,
+            "content_type": ctype,
+            "local_path": str(dest.relative_to(CAPTURE_DIR)),
+            "assets": sorted(assets),
+        }
+    except Exception as e:
+        inc_state("errors")
+        return {"url": url, "error": str(e), "assets": []}
+
+
+def download_asset(url):
+    if not is_allowed_asset(url):
+        return {"url": url, "skipped": "external-host"}
+    s = get_session()
+    try:
+        r = s.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+        if r.status_code >= 400:
+            return {"url": url, "status": r.status_code}
+        ctype = r.headers.get("content-type", "")
+        dest = asset_path(url, ctype)
+        write_bytes(dest, r.content)
+        inc_state("assets_saved")
+        nested = []
+        if "text/css" in ctype.lower():
+            try:
+                nested = sorted(extract_css_urls(r.text, r.url))
+            except Exception:
+                nested = []
+        return {
+            "url": url,
+            "final_url": r.url,
+            "status": r.status_code,
+            "content_type": ctype,
+            "bytes": len(r.content),
+            "local_path": str(dest.relative_to(CAPTURE_DIR)),
+            "nested_assets": nested,
+        }
+    except Exception as e:
+        inc_state("errors")
+        return {"url": url, "error": str(e)}
+
+
+def create_zip():
+    tmp = str(ZIP_PATH) + ".tmp"
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        for p in CAPTURE_DIR.rglob("*"):
+            if p.is_file():
+                zf.write(p, p.relative_to(CAPTURE_DIR.parent))
+    os.replace(tmp, ZIP_PATH)
+
+
+def do_crawl(force=False):
+    if not crawl_lock.acquire(blocking=False):
+        return
+    try:
+        set_state(
+            status="running",
+            started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            finished_at=None,
+            pages_discovered=0,
+            pages_saved=0,
+            assets_discovered=0,
+            assets_saved=0,
+            errors=0,
+            message="Preparing capture",
         )
-        update_scan(
-            scan_id,
-            status="completed",
-            summary=result.get("summary", ""),
-            result_json=json.dumps(result),
+
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if force and CAPTURE_DIR.exists():
+            shutil.rmtree(CAPTURE_DIR, ignore_errors=True)
+        CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+        if force and ZIP_PATH.exists():
+            ZIP_PATH.unlink(missing_ok=True)
+
+        session = get_session()
+        rp = build_robot_parser(session)
+
+        set_state(message="Reading Shopify sitemap")
+        sitemap_url = urljoin(TARGET_URL, "/sitemap.xml")
+        urls, seen_sitemaps = collect_sitemap_urls(session, sitemap_url)
+        urls.add(TARGET_URL)
+
+        page_urls = sorted(urls)[:MAX_PAGES]
+        set_state(pages_discovered=len(page_urls), message="Capturing public HTML")
+
+        page_results = []
+        assets = set()
+
+        with ThreadPoolExecutor(max_workers=PAGE_WORKERS) as pool:
+            futures = {pool.submit(crawl_page, u, rp): u for u in page_urls}
+            for fut in as_completed(futures):
+                result = fut.result()
+                page_results.append(result)
+                assets.update(result.get("assets") or [])
+
+        all_asset_urls = set(assets)
+        set_state(assets_discovered=len(all_asset_urls), message="Downloading public assets")
+
+        asset_results = []
+        processed = set()
+        round_urls = set(u for u in all_asset_urls if is_allowed_asset(u))
+
+        while round_urls and len(processed) < MAX_ASSETS:
+            batch = list(round_urls - processed)[: max(0, MAX_ASSETS - len(processed))]
+            if not batch:
+                break
+            new_nested = set()
+            with ThreadPoolExecutor(max_workers=ASSET_WORKERS) as pool:
+                futures = {pool.submit(download_asset, u): u for u in batch}
+                for fut in as_completed(futures):
+                    result = fut.result()
+                    asset_results.append(result)
+                    processed.add(result.get("url"))
+                    for nested in result.get("nested_assets") or []:
+                        if is_allowed_asset(nested) and nested not in processed:
+                            new_nested.add(nested)
+            round_urls = new_nested
+            all_asset_urls.update(new_nested)
+            set_state(assets_discovered=min(len(all_asset_urls), MAX_ASSETS))
+
+        manifest = {
+            "target": TARGET_URL,
+            "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "limits": {
+                "max_pages": MAX_PAGES,
+                "max_assets": MAX_ASSETS,
+                "page_workers": PAGE_WORKERS,
+                "asset_workers": ASSET_WORKERS,
+            },
+            "robots_respected": True,
+            "sitemaps": sorted(seen_sitemaps),
+            "pages": page_results,
+            "assets": asset_results,
+            "external_asset_urls_not_downloaded": sorted(
+                u for u in all_asset_urls if not is_allowed_asset(u)
+            ),
+        }
+        write_text(
+            CAPTURE_DIR / "manifest.json",
+            json.dumps(manifest, indent=2, ensure_ascii=False),
         )
-    except Exception as exc:
-        update_scan(scan_id, status="failed", error=str(exc))
+
+        summary = {
+            "target": TARGET_URL,
+            "pages_discovered": len(page_urls),
+            "pages_saved": snapshot_state()["pages_saved"],
+            "assets_discovered": len(all_asset_urls),
+            "assets_saved": snapshot_state()["assets_saved"],
+            "errors": snapshot_state()["errors"],
+            "zip": ZIP_PATH.name,
+        }
+        write_text(
+            CAPTURE_DIR / "SUMMARY.json",
+            json.dumps(summary, indent=2),
+        )
+
+        set_state(message="Packaging ZIP")
+        create_zip()
+        set_state(
+            status="complete",
+            finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            message="Capture complete",
+        )
+    except Exception as e:
+        inc_state("errors")
+        set_state(
+            status="failed",
+            finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            message=f"Capture failed: {e}",
+        )
+    finally:
+        crawl_lock.release()
 
 
-@app.before_request
-def ensure_research_started():
-    start_research_thread_once()
-
-
-@app.get("/api/research/status")
-def research_status():
-    state = read_research_state()
-    completed = int(state.get("probe_completed", 0)) + int(state.get("confirm_completed", 0)) + int(state.get("repair_completed", 0))
-    repair_target_count = min(4, int(state.get("confirmed", 0)))
-    total = int(state.get("targets_total", 0)) + min(4, int(state.get("candidates", 0))) + repair_target_count
-    state["progress_completed"] = completed
-    state["progress_total"] = max(total, int(state.get("targets_total", 0)))
-    state["progress_percent"] = round((completed / state["progress_total"] * 100), 1) if state["progress_total"] else 0
-    return jsonify(state)
-
-
-@app.get("/repair")
-def repair_offer():
-    state = read_research_state()
-    return render_template(
-        "repair.html",
-        version=APP_VERSION,
-        screened=state.get("probe_completed", 0),
-        candidates=state.get("candidates", 0),
-        confirmed=state.get("confirmed", 0),
-        repair_verified=state.get("repair_verified", 0),
-    )
-
-
-@app.get("/")
-def index():
-    return render_template(
-        "index.html",
-        version=APP_VERSION,
-        full_builds_enabled=os.getenv("ALLOW_FULL_BUILDS", "0") == "1",
-        token_required=bool(os.getenv("SCAN_TOKEN", "").strip()),
-    )
+def start_crawl(force=False):
+    current = snapshot_state()
+    if current["status"] == "running":
+        return False
+    t = threading.Thread(target=do_crawl, kwargs={"force": force}, daemon=True)
+    t.start()
+    return True
 
 
 @app.get("/api/health")
 def health():
-    tools = {name: bool(shutil.which(name)) for name in ("git", "make", "g++", "python3")}
-    return jsonify(
-        {
-            "ok": True,
-            "app": "WillItDeploy",
-            "version": APP_VERSION,
-            "python": platform.python_version(),
-            "platform": platform.platform(),
-            "data_dir": str(DATA_DIR),
-            "temp_storage_dir": str(TEMP_STORAGE_DIR),
-            "runtime_dir": str(RUNTIME_DIR),
-            "temp_free_bytes": shutil.disk_usage(TEMP_STORAGE_DIR).free,
-            "full_builds_enabled": os.getenv("ALLOW_FULL_BUILDS", "0") == "1",
-            "token_required": bool(os.getenv("SCAN_TOKEN", "").strip()),
-            "tools": tools,
-        }
+    return jsonify({"ok": True, **snapshot_state()})
+
+
+@app.get("/pricepulse/health")
+def legacy_health():
+    return health()
+
+
+@app.get("/api/status")
+def status():
+    s = snapshot_state()
+    s["download_ready"] = ZIP_PATH.exists()
+    if ZIP_PATH.exists():
+        s["zip_bytes"] = ZIP_PATH.stat().st_size
+    return jsonify(s)
+
+
+@app.route("/api/start", methods=["GET", "POST"])
+def api_start():
+    force = request.args.get("force", "1") == "1"
+    started = start_crawl(force=force)
+    return jsonify({"started": started, **snapshot_state()})
+
+
+@app.get("/download")
+def download():
+    if not ZIP_PATH.exists():
+        return jsonify({"error": "ZIP is not ready", **snapshot_state()}), 404
+    return send_file(
+        ZIP_PATH,
+        as_attachment=True,
+        download_name="grown-brilliance-public.zip",
+        mimetype="application/zip",
     )
 
 
-@app.post("/api/scans")
-def create_scan():
-    auth = require_token()
-    if auth:
-        return auth
-
-    payload = request.get_json(silent=True) or {}
-    repo_url = str(payload.get("repo_url") or "").strip()
-
-    def optional_text(value):
-        if value is None:
-            return None
-        cleaned = str(value).strip()
-        if not cleaned or cleaned.lower() in {"none", "null"}:
-            return None
-        return cleaned
-
-    branch = optional_text(payload.get("branch"))
-    mode = str(payload.get("mode") or "static").strip().lower()
-    project_path = optional_text(payload.get("project_path"))
-    runtimes = payload.get("runtimes", [22, 24, 26])
-
-    if mode not in {"static", "full"}:
-        return jsonify({"error": "mode must be static or full"}), 400
-    if not repo_url.startswith("https://github.com/"):
-        return jsonify({"error": "Only public https://github.com/owner/repo URLs are accepted"}), 400
-
-    normalized = []
-    for value in runtimes:
-        try:
-            major = int(value)
-        except (TypeError, ValueError):
-            continue
-        if 18 <= major <= 30 and major not in normalized:
-            normalized.append(major)
-    if not normalized:
-        return jsonify({"error": "Choose at least one Node major version"}), 400
-    if len(normalized) > 4:
-        return jsonify({"error": "Maximum 4 runtime versions per scan"}), 400
-
-    scan_id = uuid.uuid4().hex[:12]
-    ts = now_ts()
-    with db_conn() as conn:
-        conn.execute(
-            "INSERT INTO scans (id, created_at, updated_at, repo_url, branch, project_path, mode, runtimes, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (scan_id, ts, ts, repo_url, branch, project_path, mode, json.dumps(normalized), "queued"),
-        )
-        conn.commit()
-
-    executor.submit(worker, scan_id, repo_url, branch, project_path, mode, normalized)
-    return jsonify({"id": scan_id, "status": "queued"}), 202
+@app.get("/")
+def home():
+    s = snapshot_state()
+    ready = ZIP_PATH.exists()
+    button = (
+        '<a href="/download" style="display:inline-block;padding:12px 18px;background:#111;color:white;text-decoration:none;border-radius:8px">Download capture ZIP</a>'
+        if ready
+        else '<a href="/api/start?force=1">Start/restart capture</a>'
+    )
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vedi Reference Capture</title>
+<style>body{{font-family:Inter,Arial,sans-serif;max-width:760px;margin:60px auto;padding:0 20px;color:#171717}}code,pre{{background:#f4f4f4;padding:4px 7px;border-radius:5px}}pre{{white-space:pre-wrap;padding:16px}}.muted{{color:#666}}</style>
+</head><body>
+<h1>Vedi public storefront capture</h1>
+<p class="muted">Target: {TARGET_URL}</p>
+<p>Status: <strong>{s['status']}</strong> — {s['message']}</p>
+<pre>{json.dumps(s, indent=2)}</pre>
+<p>{button}</p>
+<p><a href="/api/status">JSON status</a></p>
+</body></html>"""
+    return Response(html, mimetype="text/html")
 
 
-@app.post("/api/self-test")
-def self_test():
-    auth = require_token()
-    if auth:
-        return auth
-    if os.getenv("ALLOW_FULL_BUILDS", "0") != "1":
-        return jsonify({"error": "Set ALLOW_FULL_BUILDS=1 to run the bundled full-build self-test."}), 400
-
-    try:
-        result = scan_fixture(
-            fixture_dir=BASE_DIR / "fixtures" / "hello-node",
-            node_majors=[22, 24, 26],
-            work_root=WORK_DIR,
-            runtime_root=RUNTIME_DIR,
-        )
-        result["regression_checks"] = regression_checks(BASE_DIR / "fixtures")
-        return jsonify(result)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-
-@app.get("/api/scans")
-def list_scans():
-    limit = min(100, max(1, int(request.args.get("limit", "30"))))
-    with db_conn() as conn:
-        rows = conn.execute(
-            "SELECT id, created_at, updated_at, repo_url, branch, project_path, mode, runtimes, status, summary, error FROM scans ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-    return jsonify([dict(row) | {"runtimes": json.loads(row["runtimes"])} for row in rows])
-
-
-@app.get("/api/scans/<scan_id>")
-def get_scan(scan_id: str):
-    with db_conn() as conn:
-        row = conn.execute("SELECT * FROM scans WHERE id = ?", (scan_id,)).fetchone()
-    if not row:
-        return jsonify({"error": "Scan not found"}), 404
-    data = dict(row)
-    data["runtimes"] = json.loads(data["runtimes"])
-    if data.get("result_json"):
-        data["result"] = json.loads(data["result_json"])
-    data.pop("result_json", None)
-    return jsonify(data)
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")), debug=False)
-
-
-# Mount the monitoring MVP without consuming another Railway service.
-application = DispatcherMiddleware(app, {"/pricepulse": pricepulse_app})
+if AUTO_START:
+    start_crawl(force=FORCE_RECRAWL)
