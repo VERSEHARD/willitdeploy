@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>$1 npm 11 Lockfile Repair — WillItDeploy</title>
-  <meta name="description" content="A verified package-lock-only repair for repositories that pass npm 10 but fail npm 11 npm ci.">
+  <meta name="description" content="Check whether your npm 10 to npm 11 failure qualifies for a $1 verified package-lock.json repair.">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.0/dist/css/tabler.min.css">
 </head>
 <body>
@@ -23,15 +23,12 @@
           <div class="col-lg-8">
             <div class="page-pretitle">Verified compatibility repair</div>
             <h1 class="display-5 fw-bold mb-3">npm 10 works. npm 11 breaks.<br>Get the lockfile repair for $1.</h1>
-            <p class="text-secondary fs-3 mb-4">
-              We reproduce the failure, regenerate only <code>package-lock.json</code> with lifecycle scripts disabled,
-              then verify the repaired lockfile under both npm 10 and npm 11.
-            </p>
+            <p class="text-secondary fs-3 mb-4">A focused repair for repositories where the committed lockfile passes <code>npm ci</code> on npm 10 but fails on npm 11.</p>
             <div class="d-flex flex-wrap gap-2">
               <a class="btn btn-primary btn-lg" href="https://github.com/VERSEHARD/willitdeploy/issues/new?template=repair.yml">Request a $1 repair</a>
               <a class="btn btn-outline-secondary btn-lg" href="/">See the live research</a>
             </div>
-            <div class="text-secondary small mt-3">You only pay after we confirm your repo matches the repairable failure class.</div>
+            <div class="text-secondary small mt-3">$1 only for a verified patch. No charge if your repo does not qualify or the patch does not pass both versions.</div>
           </div>
 
           <div class="col-lg-4">
@@ -44,44 +41,32 @@
                   <div class="col-6"><div class="h1 mb-0">{{ confirmed }}</div><div class="text-secondary">confirmed</div></div>
                   <div class="col-6"><div class="h1 mb-0">{{ repair_verified }}</div><div class="text-secondary">repairs verified</div></div>
                 </div>
+                <p class="text-secondary small mb-0 mt-3">3 of 4 reproduced failures were repaired and verified. The fourth was rejected when a simple refresh did not fix it.</p>
               </div>
             </div>
           </div>
         </div>
 
         <div class="row row-cards pb-5">
-          <div class="col-md-4">
-            <div class="card h-100"><div class="card-body">
-              <div class="subheader">1. Reproduce</div>
-              <h3 class="mt-2">Controlled npm 10 → 11 test</h3>
-              <p class="text-secondary mb-0">Same repository, same Node runtime, pinned npm versions. We distinguish a real package-manager break from Node drift.</p>
-            </div></div>
-          </div>
-          <div class="col-md-4">
-            <div class="card h-100"><div class="card-body">
-              <div class="subheader">2. Repair</div>
-              <h3 class="mt-2">Package-lock only</h3>
-              <p class="text-secondary mb-0">No source rewrite. No dependency-script execution. The repair is rejected if files other than the lockfile change.</p>
-            </div></div>
-          </div>
-          <div class="col-md-4">
-            <div class="card h-100"><div class="card-body">
-              <div class="subheader">3. Verify</div>
-              <h3 class="mt-2">Both sides must pass</h3>
-              <p class="text-secondary mb-0">The patch is only marked verified when clean npm 10 and npm 11 dry-run installs both pass afterward.</p>
-            </div></div>
-          </div>
-
-          <div class="col-12">
-            <div class="card">
-              <div class="card-header"><h3 class="card-title">What you get for the $1 launch price</h3></div>
+          <div class="col-lg-7">
+            <div class="card h-100">
+              <div class="card-header"><h2 class="card-title">Quick qualification checklist</h2></div>
               <div class="card-body">
-                <ul class="mb-0">
-                  <li>Before/after npm compatibility evidence.</li>
-                  <li>A ready-to-apply <code>.patch</code> containing the lockfile repair.</li>
-                  <li>The exact failure signature that triggered the repair.</li>
-                  <li>No charge if the repository does not fit the repairable class.</li>
+                <ul class="list-unstyled mb-0 d-grid gap-3">
+                  <li>☐ Your repository commits a <code>package-lock.json</code>.</li>
+                  <li>☐ On the same Node version, <code>npm ci</code> passes with npm <strong>10.9.9</strong> and fails with npm <strong>11.19.0</strong> because the lockfile is incomplete or out of sync.</li>
+                  <li>☐ You can share a public repository URL, branch, project path, and relevant failure output so we can reproduce it.</li>
                 </ul>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-5">
+            <div class="card h-100">
+              <div class="card-header"><h2 class="card-title">What happens next</h2></div>
+              <div class="card-body text-secondary">
+                <p>We reproduce the split, refresh <strong>only</strong> <code>package-lock.json</code> with lifecycle scripts disabled, and reject any patch that changes another tracked file.</p>
+                <p>We then verify the repaired lockfile under both <strong>npm 10.9.9</strong> and <strong>npm 11.19.0</strong>. If a simple refresh does not fix the failure, we reject it.</p>
+                <p class="mb-0"><strong>$1 for a verified patch</strong> with before/after evidence. No charge if your repo does not match or either verification fails.</p>
               </div>
             </div>
           </div>
